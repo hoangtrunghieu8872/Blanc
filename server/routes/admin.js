@@ -31,8 +31,8 @@ const SETTINGS_COLLECTION = 'platform_settings';
 const DEFAULT_SETTINGS = {
     _id: 'platform_config',
     general: {
-        siteName: 'ContestHub',
-        supportEmail: 'support@contesthub.com',
+        siteName: 'Blanc',
+        supportEmail: 'support@blanc.com',
         maintenanceMode: false,
         defaultLanguage: 'vi',
         timezone: 'Asia/Ho_Chi_Minh',
@@ -87,7 +87,135 @@ router.get('/status', async (_req, res, next) => {
 
         res.json({
             maintenanceMode: settings.general?.maintenanceMode || false,
-            siteName: settings.general?.siteName || 'ContestHub',
+            siteName: settings.general?.siteName || 'Blanc',
+        });
+    } catch (error) {
+        next(error);
+    }
+});
+
+/**
+ * GET /api/admin/users
+ * Get all users with pagination, search, and filters (admin only)
+ * Query params: page, limit, search, role, status, sortBy, sortOrder
+ */
+router.get('/users', authGuard, requireAdmin, async (req, res, next) => {
+    try {
+        await connectToDatabase();
+        const users = getCollection('users');
+
+        // Parse query parameters
+        const page = Math.max(1, parseInt(req.query.page) || 1);
+        const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 20));
+        const skip = (page - 1) * limit;
+
+        const search = req.query.search?.trim() || '';
+        const roleFilter = req.query.role || ''; // 'admin', 'student', ''
+        const statusFilter = req.query.status || ''; // 'active', 'banned', ''
+        const sortBy = req.query.sortBy || 'createdAt';
+        const sortOrder = req.query.sortOrder === 'asc' ? 1 : -1;
+
+        // Build query
+        const query = {};
+
+        // Search by name or email
+        if (search) {
+            query.$or = [
+                { name: { $regex: search, $options: 'i' } },
+                { email: { $regex: search, $options: 'i' } }
+            ];
+        }
+
+        // Filter by role
+        if (roleFilter) {
+            query.role = roleFilter;
+        }
+
+        // Filter by status
+        if (statusFilter) {
+            query.status = statusFilter;
+        }
+
+        // Build sort object
+        const sortOptions = {};
+        const allowedSortFields = ['name', 'email', 'role', 'status', 'points', 'createdAt', 'lastLoginAt'];
+        if (allowedSortFields.includes(sortBy)) {
+            sortOptions[sortBy] = sortOrder;
+        } else {
+            sortOptions.createdAt = -1;
+        }
+
+        // Execute queries in parallel
+        const [userList, total] = await Promise.all([
+            users.find(query, {
+                projection: {
+                    password: 0,
+                    resetPasswordToken: 0,
+                    resetPasswordExpiry: 0,
+                    refreshToken: 0
+                }
+            })
+                .sort(sortOptions)
+                .skip(skip)
+                .limit(limit)
+                .toArray(),
+            users.countDocuments(query)
+        ]);
+
+        // Transform users
+        const transformedUsers = userList.map(user => ({
+            id: user._id.toString(),
+            name: user.name || '',
+            email: user.email,
+            avatar: user.avatar || null,
+            role: user.role || 'student',
+            status: user.status || 'active',
+            points: user.points || 0,
+            phone: user.phone || null,
+            bio: user.bio || null,
+            createdAt: user.createdAt,
+            lastLoginAt: user.lastLoginAt || null,
+            emailVerified: user.emailVerified || false
+        }));
+
+        // Calculate stats
+        const stats = await users.aggregate([
+            {
+                $group: {
+                    _id: null,
+                    totalUsers: { $sum: 1 },
+                    totalAdmins: { $sum: { $cond: [{ $eq: ['$role', 'admin'] }, 1, 0] } },
+                    totalStudents: { $sum: { $cond: [{ $ne: ['$role', 'admin'] }, 1, 0] } },
+                    activeUsers: { $sum: { $cond: [{ $eq: ['$status', 'active'] }, 1, 0] } },
+                    bannedUsers: { $sum: { $cond: [{ $eq: ['$status', 'banned'] }, 1, 0] } }
+                }
+            }
+        ]).toArray();
+
+        const userStats = stats[0] || {
+            totalUsers: 0,
+            totalAdmins: 0,
+            totalStudents: 0,
+            activeUsers: 0,
+            bannedUsers: 0
+        };
+
+        res.json({
+            users: transformedUsers,
+            pagination: {
+                page,
+                limit,
+                total,
+                totalPages: Math.ceil(total / limit),
+                hasMore: page * limit < total
+            },
+            stats: {
+                total: userStats.totalUsers,
+                admins: userStats.totalAdmins,
+                students: userStats.totalStudents,
+                active: userStats.activeUsers,
+                banned: userStats.bannedUsers
+            }
         });
     } catch (error) {
         next(error);
@@ -365,9 +493,9 @@ router.post('/email/test', authGuard, async (req, res, next) => {
 
         await sendSystemNotification({
             to: email,
-            title: 'Test Email từ ContestHub Admin',
+            title: 'Test Email từ Blanc Admin',
             message: `
-                <p>Đây là email thử nghiệm từ hệ thống quản trị ContestHub.</p>
+                <p>Đây là email thử nghiệm từ hệ thống quản trị Blanc.</p>
                 <p>Nếu bạn nhận được email này, nghĩa là hệ thống email đang hoạt động bình thường.</p>
                 <p><strong>Thời gian gửi:</strong> ${new Date().toLocaleString('vi-VN')}</p>
             `,

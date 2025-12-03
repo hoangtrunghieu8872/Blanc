@@ -101,7 +101,7 @@ const TeamPostCard: React.FC<{ post: TeamPost }> = ({ post }) => {
                     )}
                 </div>
                 {post.isExpired && (
-                    <span className="flex-shrink-0 px-2 py-0.5 bg-orange-100 text-orange-600 text-xs rounded-full">
+                    <span className="shrink-0 px-2 py-0.5 bg-orange-100 text-orange-600 text-xs rounded-full">
                         Hết hạn
                     </span>
                 )}
@@ -146,7 +146,7 @@ const TeammateCard: React.FC<{ teammate: Teammate }> = ({ teammate }) => {
     return (
         <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm hover:shadow-md transition-shadow">
             <div className="flex items-center gap-2">
-                <div className="w-8 h-8 bg-gradient-to-br from-primary-400 to-primary-600 rounded-full flex items-center justify-center text-white text-xs font-medium">
+                <div className="w-8 h-8 bg-linear-to-br from-primary-400 to-primary-600 rounded-full flex items-center justify-center text-white text-xs font-medium">
                     {teammate.name.charAt(0).toUpperCase()}
                 </div>
                 <div className="flex-1 min-w-0">
@@ -202,7 +202,7 @@ const ContestCard: React.FC<{ contest: Contest }> = ({ contest }) => {
     return (
         <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm hover:shadow-md transition-shadow">
             <div className="flex items-start gap-2">
-                <div className="w-8 h-8 bg-gradient-to-br from-amber-400 to-orange-500 rounded-lg flex items-center justify-center">
+                <div className="w-8 h-8 bg-linear-to-br from-amber-400 to-orange-500 rounded-lg flex items-center justify-center">
                     <Trophy className="w-4 h-4 text-white" />
                 </div>
                 <div className="flex-1 min-w-0">
@@ -334,9 +334,9 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message }) => {
     return (
         <div className={`flex gap-2 ${isUser ? 'flex-row-reverse' : 'flex-row'}`}>
             {/* Avatar */}
-            <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${isUser
+            <div className={`shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${isUser
                 ? 'bg-primary-100 text-primary-600'
-                : 'bg-gradient-to-br from-violet-500 to-purple-600 text-white'
+                : 'bg-linear-to-br from-violet-500 to-purple-600 text-white'
                 }`}>
                 {isUser ? <User className="w-4 h-4" /> : <Bot className="w-4 h-4" />}
             </div>
@@ -347,7 +347,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message }) => {
                     ? 'bg-primary-500 text-white rounded-br-md'
                     : 'bg-slate-100 text-slate-800 rounded-bl-md'
                     }`}>
-                    <p className="text-sm whitespace-pre-wrap break-words">{message.content}</p>
+                    <p className="text-sm whitespace-pre-wrap break-all">{message.content}</p>
                 </div>
 
                 {/* Data Cards for assistant messages */}
@@ -548,7 +548,7 @@ export const ChatBubble: React.FC = () => {
             {/* Chat Bubble Button */}
             <button
                 onClick={() => setIsOpen(true)}
-                className={`fixed bottom-6 right-6 z-50 w-14 h-14 bg-gradient-to-br from-primary-500 to-primary-600 text-white rounded-full shadow-lg hover:shadow-xl hover:scale-105 transition-all duration-300 flex items-center justify-center group ${isOpen ? 'scale-0 opacity-0' : 'scale-100 opacity-100'}`}
+                className={`fixed bottom-6 right-6 z-50 w-14 h-14 bg-linear-to-br from-primary-500 to-primary-600 text-white rounded-full shadow-lg hover:shadow-xl hover:scale-105 transition-all duration-300 flex items-center justify-center group ${isOpen ? 'scale-0 opacity-0' : 'scale-100 opacity-100'}`}
                 aria-label="Mở chat với AI Assistant"
             >
                 <MessageCircle className="w-6 h-6" />
@@ -563,13 +563,13 @@ export const ChatBubble: React.FC = () => {
             {/* Chat Window */}
             <div className={`fixed bottom-6 right-6 z-50 w-[380px] h-[600px] max-h-[80vh] bg-white rounded-2xl shadow-2xl flex flex-col overflow-hidden transition-all duration-300 ${isOpen ? 'scale-100 opacity-100' : 'scale-95 opacity-0 pointer-events-none'}`}>
                 {/* Header */}
-                <div className="bg-gradient-to-r from-primary-500 to-primary-600 px-4 py-3 flex items-center justify-between">
+                <div className="bg-linear-to-r from-primary-500 to-primary-600 px-4 py-3 flex items-center justify-between">
                     <div className="flex items-center gap-3">
                         <div className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center">
                             <Sparkles className="w-5 h-5 text-white" />
                         </div>
                         <div>
-                            <h3 className="font-semibold text-white">ContestHub AI</h3>
+                            <h3 className="font-semibold text-white">Blanc AI</h3>
                             <p className="text-xs text-white/80">Trợ lý thông minh của bạn</p>
                         </div>
                     </div>
@@ -604,14 +604,14 @@ export const ChatBubble: React.FC = () => {
                     {messages.length === 0 ? (
                         // Welcome state
                         <div className="h-full flex flex-col items-center justify-center text-center px-4">
-                            <div className="w-16 h-16 bg-gradient-to-br from-primary-100 to-violet-100 rounded-2xl flex items-center justify-center mb-4">
+                            <div className="w-16 h-16 bg-linear-to-br from-primary-100 to-violet-100 rounded-2xl flex items-center justify-center mb-4">
                                 <Sparkles className="w-8 h-8 text-primary-500" />
                             </div>
                             <h4 className="text-lg font-semibold text-slate-800 mb-2">
                                 Xin chào! 👋
                             </h4>
                             <p className="text-sm text-slate-600 mb-6">
-                                Tôi là trợ lý AI của ContestHub. Tôi có thể giúp bạn tìm cuộc thi phù hợp, gợi ý đồng đội, và hướng dẫn sử dụng nền tảng.
+                                Tôi là trợ lý AI của Blanc. Tôi có thể giúp bạn tìm cuộc thi phù hợp, gợi ý đồng đội, và hướng dẫn sử dụng nền tảng.
                             </p>
 
                             {/* Suggestions */}
@@ -637,7 +637,7 @@ export const ChatBubble: React.FC = () => {
                             {/* Loading indicator */}
                             {isLoading && (
                                 <div className="flex gap-2">
-                                    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center">
+                                    <div className="w-8 h-8 rounded-full bg-linear-to-br from-violet-500 to-purple-600 flex items-center justify-center">
                                         <Bot className="w-4 h-4 text-white" />
                                     </div>
                                     <div className="bg-slate-100 rounded-2xl rounded-bl-md px-4 py-3">
@@ -653,7 +653,7 @@ export const ChatBubble: React.FC = () => {
                             {/* Error message */}
                             {error && (
                                 <div className="flex items-center gap-2 px-4 py-2 bg-red-50 text-red-600 rounded-lg text-sm">
-                                    <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                                    <AlertCircle className="w-4 h-4 shrink-0" />
                                     <span>{error}</span>
                                 </div>
                             )}
@@ -711,7 +711,7 @@ export const ChatBubble: React.FC = () => {
                         <button
                             type="submit"
                             disabled={!inputValue.trim() || isLoading}
-                            className="w-10 h-10 bg-primary-500 text-white rounded-xl flex items-center justify-center hover:bg-primary-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex-shrink-0"
+                            className="w-10 h-10 bg-primary-500 text-white rounded-xl flex items-center justify-center hover:bg-primary-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shrink-0"
                             title="Gửi tin nhắn"
                             aria-label="Gửi tin nhắn"
                         >

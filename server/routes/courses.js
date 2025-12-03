@@ -17,6 +17,16 @@ const courseFields = {
         level: 1,
         image: 1,
         description: 1,
+        duration: 1,
+        hoursPerWeek: 1,
+        startDate: 1,
+        endDate: 1,
+        contactInfo: 1,
+        contactType: 1,
+        lessonsCount: 1,
+        isPublic: 1,
+        benefits: 1,
+        sections: 1,
         createdAt: 1,
         updatedAt: 1,
     },
@@ -128,7 +138,12 @@ router.get('/', async (req, res, next) => {
         await connectToDatabase();
         const limit = Math.min(Number(req.query.limit) || 50, 100);
         const level = typeof req.query.level === 'string' ? req.query.level : undefined;
-        const query = level ? { level } : {};
+
+        // Base query - exclude deleted courses
+        const query = { deletedAt: { $exists: false } };
+        if (level) {
+            query.level = level;
+        }
 
         const courses = await getCollection('courses')
             .find(query, courseFields)
@@ -218,7 +233,13 @@ router.get('/enrolled', authGuard, async (req, res, next) => {
                     level: course.level,
                     image: course.image,
                     description: course.description,
-                    lessonsCount: course.lessons?.length || 0
+                    lessonsCount: course.lessons?.length || course.lessonsCount || 0,
+                    duration: course.duration,
+                    hoursPerWeek: course.hoursPerWeek,
+                    startDate: course.startDate,
+                    endDate: course.endDate,
+                    contactInfo: course.contactInfo,
+                    contactType: course.contactType
                 } : null
             };
         });
@@ -233,6 +254,40 @@ router.get('/enrolled', authGuard, async (req, res, next) => {
             }
         });
 
+    } catch (error) {
+        next(error);
+    }
+});
+
+// GET /api/courses/enrollment-status/:id - Kiểm tra trạng thái enrollment (PROTECTED)
+router.get('/enrollment-status/:id', authGuard, async (req, res, next) => {
+    try {
+        await connectToDatabase();
+        const courseId = req.params.id;
+        const userId = req.user.id;
+
+        if (!ObjectId.isValid(courseId)) {
+            return res.status(400).json({ error: 'Invalid course id' });
+        }
+
+        const enrollment = await getCollection('enrollments').findOne({
+            userId: new ObjectId(userId),
+            courseId: new ObjectId(courseId)
+        });
+
+        if (enrollment) {
+            res.json({
+                enrolled: true,
+                enrollmentId: enrollment._id.toString(),
+                status: enrollment.status,
+                enrolledAt: enrollment.enrolledAt,
+                progress: enrollment.progress || 0
+            });
+        } else {
+            res.json({
+                enrolled: false
+            });
+        }
     } catch (error) {
         next(error);
     }
@@ -408,7 +463,10 @@ router.get('/:id', async (req, res, next) => {
             return res.status(400).json({ error: 'Invalid course id' });
         }
 
-        const course = await getCollection('courses').findOne({ _id: new ObjectId(id) }, courseFields);
+        const course = await getCollection('courses').findOne({
+            _id: new ObjectId(id),
+            deletedAt: { $exists: false }
+        }, courseFields);
         if (!course) {
             return res.status(404).json({ error: 'Course not found' });
         }
@@ -439,6 +497,14 @@ router.post('/', authGuard, requireRole('admin'), async (req, res, next) => {
             level: body.level || 'Beginner',
             image: body.image || '',
             description: body.description || '',
+            // Schedule fields
+            duration: body.duration || '',
+            hoursPerWeek: Number(body.hoursPerWeek) || 0,
+            startDate: body.startDate || null,
+            endDate: body.endDate || null,
+            // Contact fields
+            contactInfo: body.contactInfo || '',
+            contactType: body.contactType || 'phone',
             createdAt: new Date(),
             updatedAt: new Date(),
             createdBy: req.user?.id || null,
@@ -461,7 +527,7 @@ router.patch('/:id', authGuard, requireRole('admin'), async (req, res, next) => 
         }
 
         const updates = { ...req.body, updatedAt: new Date() };
-        const allowed = ['title', 'instructor', 'price', 'rating', 'reviewsCount', 'level', 'image', 'description'];
+        const allowed = ['title', 'instructor', 'price', 'rating', 'reviewsCount', 'level', 'image', 'description', 'duration', 'hoursPerWeek', 'startDate', 'endDate', 'contactInfo', 'contactType', 'isPublic', 'benefits', 'sections'];
         const set = {};
         allowed.forEach((key) => {
             if (updates[key] !== undefined) {
@@ -484,6 +550,70 @@ router.patch('/:id', authGuard, requireRole('admin'), async (req, res, next) => 
     }
 });
 
+// DELETE /api/courses/:id - Xóa khóa học (admin only)
+router.delete('/:id', authGuard, requireRole('admin'), async (req, res, next) => {
+    try {
+        await connectToDatabase();
+        const id = req.params.id;
+
+        if (!ObjectId.isValid(id)) {
+            return res.status(400).json({ error: 'Invalid course id' });
+        }
+
+        // Check if course exists
+        const course = await getCollection('courses').findOne({ _id: new ObjectId(id) });
+        if (!course) {
+            return res.status(404).json({ error: 'Course not found' });
+        }
+
+        // Check if there are active enrollments
+        const activeEnrollments = await getCollection('enrollments').countDocuments({
+            courseId: new ObjectId(id),
+            status: { $nin: ['cancelled', 'completed'] }
+        });
+
+        if (activeEnrollments > 0) {
+            return res.status(400).json({
+                error: 'Cannot delete course with active enrollments',
+                activeEnrollments
+            });
+        }
+
+        // Soft delete - mark as deleted instead of removing
+        const result = await getCollection('courses').updateOne(
+            { _id: new ObjectId(id) },
+            {
+                $set: {
+                    deletedAt: new Date(),
+                    deletedBy: new ObjectId(req.user.id),
+                    isActive: false
+                }
+            }
+        );
+
+        // Log to audit
+        await getCollection('audit_logs').insertOne({
+            action: 'course_deleted',
+            userId: new ObjectId(req.user.id),
+            targetId: new ObjectId(id),
+            targetType: 'course',
+            details: {
+                courseTitle: course.title,
+                courseCode: course.code
+            },
+            createdAt: new Date(),
+            ip: req.ip
+        });
+
+        res.json({
+            deleted: true,
+            message: 'Course deleted successfully'
+        });
+    } catch (error) {
+        next(error);
+    }
+});
+
 function mapCourse(doc) {
     return {
         id: doc._id?.toString(),
@@ -496,6 +626,16 @@ function mapCourse(doc) {
         level: doc.level,
         image: doc.image,
         description: doc.description,
+        duration: doc.duration,
+        hoursPerWeek: doc.hoursPerWeek,
+        startDate: doc.startDate,
+        endDate: doc.endDate,
+        contactInfo: doc.contactInfo,
+        contactType: doc.contactType,
+        lessonsCount: doc.lessons?.length || doc.lessonsCount || 0,
+        isPublic: doc.isPublic ?? true,
+        benefits: doc.benefits || [],
+        sections: doc.sections || [],
         createdAt: doc.createdAt,
         updatedAt: doc.updatedAt,
     };

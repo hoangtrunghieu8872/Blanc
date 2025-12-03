@@ -1,19 +1,19 @@
 // Seed admin notifications for testing
 const { MongoClient } = require('mongodb');
 
-const MONGO_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/contesthub';
+const MONGO_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/blanc';
 
 async function seedNotifications() {
     const client = new MongoClient(MONGO_URI);
-    
+
     try {
         await client.connect();
         const db = client.db();
         const notifications = db.collection('admin_notifications');
-        
+
         // Clear existing notifications
         await notifications.deleteMany({});
-        
+
         const now = new Date();
         const testNotifications = [
             {
@@ -62,17 +62,17 @@ async function seedNotifications() {
             },
             {
                 title: 'User Milestone Reached',
-                message: 'Congratulations! ContestHub has reached 1,000 active students!',
+                message: 'Congratulations! Blanc has reached 1,000 active students!',
                 type: 'success',
                 category: 'system',
                 read: true,
                 createdAt: new Date(now - 3 * 24 * 60 * 60 * 1000) // 3 days ago
             }
         ];
-        
+
         await notifications.insertMany(testNotifications);
         console.log('Seeded', testNotifications.length, 'notifications successfully!');
-        
+
     } catch (error) {
         console.error('Error seeding notifications:', error);
     } finally {

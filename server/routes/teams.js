@@ -337,7 +337,7 @@ router.get('/', async (req, res, next) => {
             teamPosts.countDocuments(query)
         ]);
 
-        // Transform _id to id
+        // Transform _id to id and ensure all IDs are strings
         const transformedPosts = posts.map(post => ({
             ...post,
             id: post._id.toString(),
@@ -348,7 +348,11 @@ router.get('/', async (req, res, next) => {
                 name: post.createdBy.name || 'Unknown',
                 avatar: post.createdBy.avatar || '',
                 email: post.createdBy.email || ''
-            } : { id: '', name: 'Unknown', avatar: '', email: '' }
+            } : { id: '', name: 'Unknown', avatar: '', email: '' },
+            members: post.members?.map(member => ({
+                ...member,
+                id: member.id?.toString() || ''
+            })) || []
         }));
 
         res.json({
@@ -360,6 +364,173 @@ router.get('/', async (req, res, next) => {
                 totalPages: Math.ceil(total / limitNum)
             }
         });
+    } catch (error) {
+        next(error);
+    }
+});
+
+/**
+ * PATCH /api/teams/:id/status
+ * Toggle team post status (owner only)
+ */
+router.patch('/:id/status', authGuard, async (req, res, next) => {
+    try {
+        await connectToDatabase();
+
+        const { id } = req.params;
+        const { status } = req.body;
+        const userId = req.user.id;
+
+        if (!ObjectId.isValid(id)) {
+            return res.status(400).json({ error: 'ID không hợp lệ' });
+        }
+
+        if (!['open', 'closed'].includes(status)) {
+            return res.status(400).json({ error: 'Trạng thái không hợp lệ. Chỉ chấp nhận: open, closed' });
+        }
+
+        const teamPosts = getCollection('team_posts');
+        const post = await teamPosts.findOne({ _id: new ObjectId(id) });
+
+        if (!post) {
+            return res.status(404).json({ error: 'Không tìm thấy bài đăng' });
+        }
+
+        // Check ownership
+        if (post.createdBy.id.toString() !== userId) {
+            return res.status(403).json({ error: 'Bạn không có quyền thay đổi trạng thái bài đăng này' });
+        }
+
+        // Check if post is soft-deleted
+        if (post.deletedAt) {
+            return res.status(400).json({ error: 'Không thể thay đổi trạng thái bài đăng đã xóa' });
+        }
+
+        await teamPosts.updateOne(
+            { _id: new ObjectId(id) },
+            { $set: { status, updatedAt: new Date() } }
+        );
+
+        // Log activity
+        const auditLogs = getCollection('audit_logs');
+        await auditLogs.insertOne({
+            action: 'team_post_status_changed',
+            userId: new ObjectId(userId),
+            resourceType: 'team_post',
+            resourceId: new ObjectId(id),
+            details: { title: post.title, oldStatus: post.status, newStatus: status },
+            createdAt: new Date()
+        });
+
+        res.json({ message: 'Cập nhật trạng thái thành công', status });
+    } catch (error) {
+        next(error);
+    }
+});
+
+/**
+ * DELETE /api/teams/:id/soft
+ * Soft delete team post (owner only)
+ */
+router.delete('/:id/soft', authGuard, async (req, res, next) => {
+    try {
+        await connectToDatabase();
+
+        const { id } = req.params;
+        const userId = req.user.id;
+
+        if (!ObjectId.isValid(id)) {
+            return res.status(400).json({ error: 'ID không hợp lệ' });
+        }
+
+        const teamPosts = getCollection('team_posts');
+        const post = await teamPosts.findOne({ _id: new ObjectId(id) });
+
+        if (!post) {
+            return res.status(404).json({ error: 'Không tìm thấy bài đăng' });
+        }
+
+        // Check ownership
+        if (post.createdBy.id.toString() !== userId) {
+            return res.status(403).json({ error: 'Bạn không có quyền xóa bài đăng này' });
+        }
+
+        // Check if already deleted
+        if (post.deletedAt) {
+            return res.status(400).json({ error: 'Bài đăng đã được xóa trước đó' });
+        }
+
+        await teamPosts.updateOne(
+            { _id: new ObjectId(id) },
+            { $set: { deletedAt: new Date(), status: 'closed', updatedAt: new Date() } }
+        );
+
+        // Log activity
+        const auditLogs = getCollection('audit_logs');
+        await auditLogs.insertOne({
+            action: 'team_post_soft_deleted',
+            userId: new ObjectId(userId),
+            resourceType: 'team_post',
+            resourceId: new ObjectId(id),
+            details: { title: post.title },
+            createdAt: new Date()
+        });
+
+        res.json({ message: 'Xóa bài đăng thành công' });
+    } catch (error) {
+        next(error);
+    }
+});
+
+/**
+ * PATCH /api/teams/:id/restore
+ * Restore soft-deleted team post (owner only)
+ */
+router.patch('/:id/restore', authGuard, async (req, res, next) => {
+    try {
+        await connectToDatabase();
+
+        const { id } = req.params;
+        const userId = req.user.id;
+
+        if (!ObjectId.isValid(id)) {
+            return res.status(400).json({ error: 'ID không hợp lệ' });
+        }
+
+        const teamPosts = getCollection('team_posts');
+        const post = await teamPosts.findOne({ _id: new ObjectId(id) });
+
+        if (!post) {
+            return res.status(404).json({ error: 'Không tìm thấy bài đăng' });
+        }
+
+        // Check ownership
+        if (post.createdBy.id.toString() !== userId) {
+            return res.status(403).json({ error: 'Bạn không có quyền khôi phục bài đăng này' });
+        }
+
+        // Check if not deleted
+        if (!post.deletedAt) {
+            return res.status(400).json({ error: 'Bài đăng chưa bị xóa' });
+        }
+
+        await teamPosts.updateOne(
+            { _id: new ObjectId(id) },
+            { $unset: { deletedAt: '' }, $set: { status: 'closed', updatedAt: new Date() } }
+        );
+
+        // Log activity
+        const auditLogs = getCollection('audit_logs');
+        await auditLogs.insertOne({
+            action: 'team_post_restored',
+            userId: new ObjectId(userId),
+            resourceType: 'team_post',
+            resourceId: new ObjectId(id),
+            details: { title: post.title },
+            createdAt: new Date()
+        });
+
+        res.json({ message: 'Khôi phục bài đăng thành công' });
     } catch (error) {
         next(error);
     }
@@ -607,7 +778,11 @@ router.post('/', authGuard, async (req, res, next) => {
                 createdBy: {
                     ...newPost.createdBy,
                     id: newPost.createdBy.id.toString()
-                }
+                },
+                members: newPost.members?.map(member => ({
+                    ...member,
+                    id: member.id?.toString() || ''
+                })) || []
             }
         });
     } catch (error) {
@@ -687,6 +862,124 @@ router.patch('/:id', authGuard, async (req, res, next) => {
         );
 
         res.json({ message: 'Cập nhật thành công', updated: updateData });
+    } catch (error) {
+        next(error);
+    }
+});
+
+/**
+ * PUT /api/teams/:id
+ * Update team post (owner only) - Alternative to PATCH for full update
+ * Supports additional fields: summary, lookingFor, tags, skills, roleSlots, deadline
+ */
+router.put('/:id', authGuard, async (req, res, next) => {
+    try {
+        await connectToDatabase();
+
+        const { id } = req.params;
+        const userId = req.user.id;
+
+        if (!ObjectId.isValid(id)) {
+            return res.status(400).json({ error: 'ID không hợp lệ' });
+        }
+
+        const teamPosts = getCollection('team_posts');
+        const post = await teamPosts.findOne({ _id: new ObjectId(id) });
+
+        if (!post) {
+            return res.status(404).json({ error: 'Không tìm thấy bài đăng' });
+        }
+
+        // Check ownership
+        if (post.createdBy.id.toString() !== userId) {
+            return res.status(403).json({ error: 'Bạn không có quyền chỉnh sửa bài đăng này' });
+        }
+
+        // Build update object
+        const updateData = {};
+        const {
+            title, description, summary, lookingFor,
+            rolesNeeded, roleSlots, maxMembers,
+            requirements, contactMethod, status,
+            tags, skills, deadline
+        } = req.body;
+
+        // Basic fields
+        if (title) updateData.title = sanitizeString(title, MAX_TITLE_LENGTH);
+        if (description !== undefined) updateData.description = sanitizeString(description, MAX_DESCRIPTION_LENGTH);
+        if (summary !== undefined) updateData.summary = sanitizeString(summary, 500);
+        if (lookingFor !== undefined) updateData.lookingFor = sanitizeString(lookingFor, 500);
+        if (requirements !== undefined) updateData.requirements = sanitizeString(requirements, MAX_REQUIREMENTS_LENGTH);
+
+        // Arrays
+        if (rolesNeeded && Array.isArray(rolesNeeded)) {
+            updateData.rolesNeeded = rolesNeeded.filter(r => ROLES_ALLOWED.includes(r)).slice(0, MAX_ROLES_COUNT);
+        }
+        if (roleSlots && Array.isArray(roleSlots)) {
+            updateData.roleSlots = roleSlots.slice(0, MAX_ROLES_COUNT).map(slot => ({
+                role: sanitizeString(slot.role, 50),
+                count: Math.min(10, Math.max(1, parseInt(slot.count, 10) || 1)),
+                description: slot.description ? sanitizeString(slot.description, 200) : undefined,
+                skills: Array.isArray(slot.skills) ? slot.skills.slice(0, 10).map(s => sanitizeString(s, 50)) : undefined
+            }));
+        }
+        if (skills && Array.isArray(skills)) {
+            updateData.skills = skills.slice(0, 20).map(s => sanitizeString(s, 50));
+        }
+        if (tags && Array.isArray(tags)) {
+            updateData.tags = tags.slice(0, 10).map(t => sanitizeString(t, 50));
+        }
+
+        // Numbers
+        if (maxMembers !== undefined) {
+            const max = parseInt(maxMembers, 10);
+            if (!isNaN(max)) {
+                updateData.maxMembers = Math.min(MAX_MEMBERS, Math.max(MIN_MEMBERS, max));
+            }
+        }
+
+        // Enums
+        if (contactMethod && ['message', 'email', 'both'].includes(contactMethod)) {
+            updateData.contactMethod = contactMethod;
+        }
+        if (status && ['open', 'closed'].includes(status)) {
+            updateData.status = status;
+        }
+
+        // Date
+        if (deadline !== undefined) {
+            if (deadline) {
+                const deadlineDate = new Date(deadline);
+                if (!isNaN(deadlineDate.getTime())) {
+                    updateData.deadline = deadlineDate;
+                }
+            } else {
+                updateData.deadline = null;
+            }
+        }
+
+        if (Object.keys(updateData).length === 0) {
+            return res.status(400).json({ error: 'Không có dữ liệu cần cập nhật' });
+        }
+
+        updateData.updatedAt = new Date();
+
+        await teamPosts.updateOne(
+            { _id: new ObjectId(id) },
+            { $set: updateData }
+        );
+
+        // Get updated post
+        const updatedPost = await teamPosts.findOne({ _id: new ObjectId(id) });
+
+        res.json({
+            message: 'Cập nhật thành công',
+            team: {
+                ...updatedPost,
+                id: updatedPost._id.toString(),
+                _id: undefined
+            }
+        });
     } catch (error) {
         next(error);
     }
@@ -957,32 +1250,112 @@ router.delete('/:id/members/:memberId', authGuard, async (req, res, next) => {
 
 /**
  * GET /api/teams/my/posts
- * Get current user's team posts
+ * Get current user's team posts with stats (requires auth)
  */
 router.get('/my/posts', authGuard, async (req, res, next) => {
     try {
         await connectToDatabase();
 
         const userId = req.user.id;
+        const { status, page = 1, limit = 10, sortBy = 'createdAt', sortOrder = 'desc', includeDeleted = 'false' } = req.query;
+
+        const pageNum = Math.max(1, parseInt(page, 10) || 1);
+        const limitNum = Math.min(50, Math.max(1, parseInt(limit, 10) || 10));
+        const skip = (pageNum - 1) * limitNum;
+
+        // Build query for user's posts
+        const query = { 'createdBy.id': new ObjectId(userId) };
+
+        // Filter by status if provided
+        if (status && ['open', 'closed', 'full'].includes(status)) {
+            query.status = status;
+        }
+
+        // Include or exclude soft-deleted posts
+        if (includeDeleted !== 'true') {
+            query.deletedAt = { $exists: false };
+        }
+
+        // Sort options
+        const allowedSortFields = ['createdAt', 'updatedAt', 'status', 'currentMembers'];
+        const sortField = allowedSortFields.includes(sortBy) ? sortBy : 'createdAt';
+        const sortDirection = sortOrder === 'asc' ? 1 : -1;
+
         const teamPosts = getCollection('team_posts');
+        const joinRequests = getCollection('team_join_requests');
 
-        const posts = await teamPosts
-            .find({ 'createdBy.id': new ObjectId(userId) })
-            .sort({ createdAt: -1 })
-            .toArray();
+        // Get posts and counts in parallel
+        const [posts, total, stats] = await Promise.all([
+            teamPosts
+                .find(query)
+                .sort({ [sortField]: sortDirection })
+                .skip(skip)
+                .limit(limitNum)
+                .toArray(),
+            teamPosts.countDocuments(query),
+            // Get aggregated stats for user's posts
+            teamPosts.aggregate([
+                { $match: { 'createdBy.id': new ObjectId(userId), deletedAt: { $exists: false } } },
+                {
+                    $group: {
+                        _id: null,
+                        totalPosts: { $sum: 1 },
+                        openPosts: { $sum: { $cond: [{ $eq: ['$status', 'open'] }, 1, 0] } },
+                        closedPosts: { $sum: { $cond: [{ $eq: ['$status', 'closed'] }, 1, 0] } },
+                        fullPosts: { $sum: { $cond: [{ $eq: ['$status', 'full'] }, 1, 0] } },
+                        totalMembers: { $sum: '$currentMembers' }
+                    }
+                }
+            ]).toArray()
+        ]);
 
+        // Get pending join requests count for each post
+        const postIds = posts.map(p => p._id);
+        const pendingRequestsCounts = await joinRequests.aggregate([
+            { $match: { teamPostId: { $in: postIds }, status: 'pending' } },
+            { $group: { _id: '$teamPostId', count: { $sum: 1 } } }
+        ]).toArray();
+
+        const pendingCountsMap = new Map(pendingRequestsCounts.map(p => [p._id.toString(), p.count]));
+
+        // Transform posts - ensure all IDs are strings
         const transformedPosts = posts.map(post => ({
             ...post,
             id: post._id.toString(),
             _id: undefined,
             contestId: post.contestId?.toString(),
+            pendingRequests: pendingCountsMap.get(post._id.toString()) || 0,
+            isDeleted: !!post.deletedAt,
             createdBy: {
-                ...post.createdBy,
-                id: post.createdBy.id.toString()
-            }
+                id: post.createdBy.id?.toString() || '',
+                name: post.createdBy.name || 'Unknown',
+                avatar: post.createdBy.avatar || '',
+                email: post.createdBy.email || ''
+            },
+            members: post.members?.map(member => ({
+                ...member,
+                id: member.id?.toString() || ''
+            })) || []
         }));
 
-        res.json({ posts: transformedPosts });
+        const statsResult = stats[0] || { totalPosts: 0, openPosts: 0, closedPosts: 0, fullPosts: 0, totalMembers: 0 };
+
+        res.json({
+            posts: transformedPosts,
+            stats: {
+                totalPosts: statsResult.totalPosts,
+                openPosts: statsResult.openPosts,
+                closedPosts: statsResult.closedPosts,
+                fullPosts: statsResult.fullPosts,
+                totalMembers: statsResult.totalMembers
+            },
+            pagination: {
+                page: pageNum,
+                limit: limitNum,
+                total,
+                totalPages: Math.ceil(total / limitNum)
+            }
+        });
     } catch (error) {
         next(error);
     }

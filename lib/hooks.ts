@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { api } from './api';
+import { api, CACHE_TTL } from './api';
 import { Contest, Course, ScheduleEvent, WorkloadAnalysis, UserRegistration } from '../types';
+import { StreakData, checkin, getStreak, clearStreakCache, refreshStreak } from '../services/streakService';
 
 // ============ DEBOUNCE UTILITY ============
 function useDebounce<T>(value: T, delay: number): T {
@@ -114,7 +115,11 @@ export function useStats() {
 
     const fetchStats = async () => {
       try {
-        const data = await api.get<Stats>('/stats');
+        // Use cached API call
+        const data = await api.get<Stats>('/stats', {
+          useCache: true,
+          cacheTTL: CACHE_TTL.STATS
+        });
         setStats(data);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load stats');
@@ -155,7 +160,11 @@ export function useContests(options: UseContestsOptions = {}) {
       const params = new URLSearchParams({ limit: limit.toString() });
       if (tag) params.append('tag', tag);
 
-      const data = await api.get<ContestsResponse>(`/contests?${params}`);
+      // Use cached API call
+      const data = await api.get<ContestsResponse>(`/contests?${params}`, {
+        useCache: true,
+        cacheTTL: CACHE_TTL.CONTESTS
+      });
       setContests(data.contests);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load contests');
@@ -199,7 +208,11 @@ export function useCourses(options: UseCoursesOptions = {}) {
       const params = new URLSearchParams({ limit: limit.toString() });
       if (level) params.append('level', level);
 
-      const data = await api.get<CoursesResponse>(`/courses?${params}`);
+      // Use cached API call
+      const data = await api.get<CoursesResponse>(`/courses?${params}`, {
+        useCache: true,
+        cacheTTL: CACHE_TTL.COURSES
+      });
       setCourses(data.courses);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load courses');
@@ -380,6 +393,109 @@ export function useUserRegistrations(options: UseUserRegistrationsOptions = {}) 
 
 // Re-export debounce for general use
 export { useDebounce };
+
+// ============ USER STREAK HOOK ============
+
+interface UseStreakOptions {
+  autoCheckin?: boolean; // Auto check-in on mount
+  userId?: string; // User ID for cache isolation
+}
+
+export function useStreak(options: UseStreakOptions = {}) {
+  const { autoCheckin = true, userId } = options;
+
+  const [streak, setStreak] = useState<StreakData | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const checkedInRef = useRef(false);
+
+  // Fetch streak data (uses localStorage cache - 24h TTL)
+  const fetchStreak = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const data = await getStreak(userId);
+      setStreak(data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Không thể tải dữ liệu streak');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [userId]);
+
+  // Force refresh from database (bypasses cache)
+  const forceRefresh = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const data = await refreshStreak(userId);
+      setStreak(data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Không thể tải dữ liệu streak');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [userId]);
+
+  // Check-in for today
+  const doCheckin = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const response = await checkin(userId);
+      setStreak({
+        currentStreak: response.currentStreak,
+        longestStreak: response.longestStreak,
+        lastActivityDate: new Date().toISOString(),
+        todayCheckedIn: response.todayCheckedIn
+      });
+      setMessage(response.message);
+      return response;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Check-in thất bại');
+      throw err;
+    } finally {
+      setIsLoading(false);
+    }
+  }, [userId]);
+
+  // Auto check-in on mount
+  useEffect(() => {
+    if (autoCheckin && !checkedInRef.current) {
+      checkedInRef.current = true;
+      doCheckin().catch(() => {
+        // If check-in fails, try to get existing streak data
+        fetchStreak();
+      });
+    } else if (!autoCheckin) {
+      fetchStreak();
+    }
+  }, [autoCheckin, doCheckin, fetchStreak]);
+
+  // Clear message after 5 seconds
+  useEffect(() => {
+    if (message) {
+      const timer = setTimeout(() => setMessage(null), 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [message]);
+
+  return {
+    streak,
+    currentStreak: streak?.currentStreak || 0,
+    longestStreak: streak?.longestStreak || 0,
+    todayCheckedIn: streak?.todayCheckedIn || false,
+    isLoading,
+    error,
+    message,
+    refetch: fetchStreak,
+    forceRefresh, // Force refresh from database (bypasses 24h cache)
+    checkin: doCheckin,
+    clearCache: clearStreakCache
+  };
+}
 
 // ============ USER NOTIFICATIONS HOOK ============
 import { Notification } from '../types';

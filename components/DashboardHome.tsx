@@ -103,7 +103,7 @@ const DashboardHome: React.FC = () => {
         </div>
 
         {/* AI Insight Section */}
-        <div className="bg-gradient-to-br from-emerald-900 to-emerald-700 text-white p-6 rounded-xl shadow-md flex flex-col justify-between relative overflow-hidden">
+        <div className="bg-linear-to-br from-emerald-900 to-emerald-700 text-white p-6 rounded-xl shadow-md flex flex-col justify-between relative overflow-hidden">
           <div className="relative z-10">
             <div className="flex items-center gap-2 mb-4">
               <Sparkles className="text-yellow-300" />

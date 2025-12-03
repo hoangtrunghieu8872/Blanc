@@ -23,7 +23,7 @@ const LOGIN_2FA_TTL_MINUTES = 2; // 2FA/OTP session expires in 2 minutes (matche
 
 // ============ TEST ACCOUNTS (bypass OTP) ============
 const OTP_BYPASS_EMAILS = [
-  'admin@contesthub.dev',
+  'admin@blanc.dev',
 ];
 
 // ============ LOGIN RATE LIMIT CONFIG ============
@@ -576,29 +576,8 @@ router.post('/login/initiate', async (req, res, next) => {
       userAgent: req.headers['user-agent'],
     });
 
-    // Request OTP to be sent
-    const otpUrl = process.env.NOTIFICATION_EMAIL_URL;
-    const secretKey = process.env.OTP_SECRET_KEY;
-
-    if (otpUrl && secretKey) {
-      try {
-        const sigData = generateSignature('send_otp', secretKey, normalizedEmail);
-
-        await fetch(otpUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            action: 'send_otp',
-            email: normalizedEmail,
-            sessionToken,
-            otpAction: 'login_2fa',
-            ...sigData
-          })
-        });
-      } catch (otpErr) {
-        console.error('[auth] Error sending login OTP:', otpErr.message);
-      }
-    }
+    // OTP will be sent via /otp/request endpoint called by frontend
+    // This ensures consistent OTP derivation across all flows
 
     return res.json({
       ok: true,
@@ -651,18 +630,15 @@ router.post('/login/verify-2fa', async (req, res, next) => {
       });
     }
 
-    // Verify OTP using HMAC derivation (same as otp.js)
-    const secretKey = process.env.OTP_SECRET_KEY;
-    if (!secretKey) {
-      return res.status(500).json({ error: 'OTP service not configured.' });
-    }
+    // Verify OTP using HMAC derivation (same algorithm as otp.js)
+    const secretKey = process.env.OTP_SECRET_KEY || process.env.JWT_SECRET || 'default-otp-secret-key-change-me';
 
-    const derivedOtp = crypto
-      .createHmac('sha256', secretKey)
-      .update(`${normalizedEmail}:${sessionToken}`)
-      .digest('hex')
-      .slice(0, 6)
-      .replace(/[a-f]/gi, c => (parseInt(c, 16) % 10).toString());
+    // Derive OTP from sessionToken using same algorithm as otp.js
+    const hmac = crypto.createHmac('sha256', secretKey);
+    hmac.update(sessionToken);
+    const hash = hmac.digest();
+    const num = hash.readUInt32BE(0);
+    const derivedOtp = (num % 1_000_000).toString().padStart(6, '0');
 
     if (otp !== derivedOtp) {
       // Track failed attempts

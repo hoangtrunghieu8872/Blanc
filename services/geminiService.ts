@@ -27,18 +27,18 @@ export const generateContestDescription = async (title: string, tags: string[]):
 };
 
 export const analyzePlatformStats = async (stats: any): Promise<string> => {
-    if (!apiKey) return "AI insights require an API Key.";
+  if (!apiKey) return "AI insights require an API Key.";
 
-    try {
-        const prompt = `Analyze these platform stats briefly and give 2 key insights for an admin: ${JSON.stringify(stats)}`;
-        const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: prompt,
-        });
-        return response.text || "No insights available.";
-    } catch (e) {
-        return "Could not analyze stats.";
-    }
+  try {
+    const prompt = `Analyze these platform stats briefly and give 2 key insights for an admin: ${JSON.stringify(stats)}`;
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: prompt,
+    });
+    return response.text || "No insights available.";
+  } catch (e) {
+    return "Could not analyze stats.";
+  }
 };
 
 export const generateCourseSyllabus = async (title: string, level: string): Promise<string> => {
@@ -62,12 +62,12 @@ export const generateSystemAnnouncement = async (topic: string, audience: string
   if (!apiKey) return "AI features require an API Key.";
 
   try {
-    const prompt = `Write a professional system announcement for a university platform named "ContestHub". 
+    const prompt = `Write a professional system announcement for a university platform named "Blanc". 
     Topic: "${topic}". 
     Target Audience: "${audience}". 
     Tone: Clear, polite, and informative.
     Format: Subject line followed by the body text.`;
-    
+
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash',
       contents: prompt,
@@ -81,22 +81,22 @@ export const generateSystemAnnouncement = async (topic: string, audience: string
 };
 
 export const analyzeAuditLogs = async (logs: any[]): Promise<string> => {
-    if (!apiKey) return "AI Analysis requires an API Key.";
+  if (!apiKey) return "AI Analysis requires an API Key.";
 
-    try {
-        const prompt = `Analyze the following system audit logs for security risks or anomalies. 
+  try {
+    const prompt = `Analyze the following system audit logs for security risks or anomalies. 
         Logs: ${JSON.stringify(logs)}.
         Provide a concise summary (3-4 bullet points) of potential threats or important actions the admin should notice.
         Focus on failed logins, bans, and critical setting changes.`;
 
-        const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: prompt,
-        });
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: prompt,
+    });
 
-        return response.text || "No analysis available.";
-    } catch (error) {
-        console.error("Error analyzing logs:", error);
-        return "Failed to analyze logs.";
-    }
+    return response.text || "No analysis available.";
+  } catch (error) {
+    console.error("Error analyzing logs:", error);
+    return "Failed to analyze logs.";
+  }
 };

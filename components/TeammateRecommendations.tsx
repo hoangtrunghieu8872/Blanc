@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useNavigate, Link } from 'react-router-dom';
 import {
     Users, Sparkles, RefreshCw, Loader2, ChevronRight,
     MapPin, Clock, Star, Zap, AlertCircle, CheckCircle2,
@@ -173,12 +174,16 @@ const TeammateCard: React.FC<{
             {/* Header */}
             <div className="flex items-start gap-3 mb-3">
                 {/* Rank Badge */}
-                <div className="flex-shrink-0 w-6 h-6 rounded-full bg-primary-100 text-primary-700 flex items-center justify-center text-xs font-bold">
+                <div className="shrink-0 w-6 h-6 rounded-full bg-primary-100 text-primary-700 flex items-center justify-center text-xs font-bold">
                     {index + 1}
                 </div>
 
-                {/* Avatar */}
-                <div className="flex-shrink-0 w-12 h-12 rounded-full overflow-hidden bg-gradient-to-br from-primary-500 to-primary-700">
+                {/* Avatar - Clickable to profile */}
+                <Link
+                    to={`/user/${teammate.id}`}
+                    className="shrink-0 w-12 h-12 rounded-full overflow-hidden bg-linear-to-br from-primary-500 to-primary-700 hover:ring-2 hover:ring-primary-300 transition-all"
+                    title={`Xem hồ sơ của ${teammate.name}`}
+                >
                     {teammate.avatar ? (
                         <img src={teammate.avatar} alt={teammate.name} className="w-full h-full object-cover" />
                     ) : (
@@ -186,11 +191,16 @@ const TeammateCard: React.FC<{
                             {getInitials(teammate.name)}
                         </div>
                     )}
-                </div>
+                </Link>
 
                 {/* Info */}
-                <div className="flex-grow min-w-0">
-                    <h4 className="font-semibold text-slate-900 truncate">{teammate.name}</h4>
+                <div className="grow min-w-0">
+                    <Link
+                        to={`/user/${teammate.id}`}
+                        className="font-semibold text-slate-900 truncate hover:text-primary-600 transition-colors block"
+                    >
+                        {teammate.name}
+                    </Link>
                     <div className="flex items-center gap-2 mt-1">
                         <Badge className={`text-xs ${roleColor}`}>
                             {teammate.profile.primaryRole || 'Chưa xác định'}
@@ -359,6 +369,7 @@ const TeammateRecommendations: React.FC<TeammateRecommendationsProps> = ({
     onViewProfile,
     onInvite
 }) => {
+    const navigate = useNavigate();
     const [recommendations, setRecommendations] = useState<TeammateRecommendation[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [isRefreshing, setIsRefreshing] = useState(false);
@@ -476,7 +487,7 @@ const TeammateRecommendations: React.FC<TeammateRecommendationsProps> = ({
             {profileCompletion && profileCompletion.completionPercent < 60 && (
                 <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
                     <div className="flex items-start gap-2">
-                        <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                        <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
                         <div>
                             <p className="font-medium text-amber-800 text-sm">
                                 Hồ sơ hoàn thiện {profileCompletion.completionPercent}%
@@ -513,7 +524,7 @@ const TeammateRecommendations: React.FC<TeammateRecommendationsProps> = ({
                     {error.includes('cài đặt') ? (
                         <Button
                             variant="secondary"
-                            onClick={() => window.location.hash = '#/settings'}
+                            onClick={() => navigate('/profile?tab=settings')}
                         >
                             Đi đến cài đặt
                         </Button>
@@ -552,7 +563,7 @@ const TeammateRecommendations: React.FC<TeammateRecommendationsProps> = ({
                 <>
                     {/* Summary */}
                     <div className="flex items-center gap-2 mb-4 p-3 bg-green-50 border border-green-200 rounded-lg">
-                        <CheckCircle2 className="w-5 h-5 text-green-600 flex-shrink-0" />
+                        <CheckCircle2 className="w-5 h-5 text-green-600 shrink-0" />
                         <p className="text-green-700 text-sm">
                             Tìm được {recommendations.length} đồng đội với vai trò & kỹ năng đa dạng cho team của bạn
                         </p>
@@ -574,7 +585,7 @@ const TeammateRecommendations: React.FC<TeammateRecommendationsProps> = ({
                     {/* Info Footer */}
                     <div className="mt-4 pt-4 border-t border-slate-100">
                         <div className="flex items-start gap-2 text-xs text-slate-500">
-                            <Target className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                            <Target className="w-4 h-4 shrink-0 mt-0.5" />
                             <p>
                                 Gợi ý dựa trên ghép đội hai chiều - cả bạn và họ đều được đánh giá phù hợp với nhau.
                                 Kết quả được cập nhật mỗi 6 giờ.

@@ -213,8 +213,27 @@ router.post('/request', async (req, res, next) => {
         // Derive OTP from session token (deterministic)
         const otp = deriveOtpFromToken(sessionToken);
 
-        // Hash session token for storage
+        // Hash session token for storage (moved up before usage)
         const sessionTokenHash = hashSessionToken(sessionToken);
+
+        // CRITICAL: Update pending_logins sessionTokenHash when requesting new OTP for login_2fa
+        // This ensures the sessionToken used for OTP matches the one stored in pending_logins
+        if (action === 'login_2fa') {
+            const pendingLogins = getCollection('pending_logins');
+            await pendingLogins.updateMany(
+                { email: normalizedEmail, status: 'PENDING_OTP' },
+                { $set: { sessionTokenHash, updatedAt: new Date() } }
+            );
+        }
+
+        // Similarly for register_verify - update pending_registrations
+        if (action === 'register_verify') {
+            const pendingRegistrations = getCollection('pending_registrations');
+            await pendingRegistrations.updateMany(
+                { email: normalizedEmail, status: 'PENDING' },
+                { $set: { sessionTokenHash, updatedAt: new Date() } }
+            );
+        }
 
         // Create OTP session record
         const expiresAt = new Date(Date.now() + OTP_CONFIG.TTL_MINUTES * 60 * 1000);
@@ -465,6 +484,24 @@ router.post('/resend', async (req, res, next) => {
             updatedAt: new Date(),
         });
 
+        // CRITICAL: Update pending_logins with new sessionTokenHash for login_2fa resend
+        if (action === 'login_2fa') {
+            const pendingLogins = getCollection('pending_logins');
+            await pendingLogins.updateMany(
+                { email: normalizedEmail, status: 'PENDING_OTP' },
+                { $set: { sessionTokenHash, updatedAt: new Date() } }
+            );
+        }
+
+        // Similarly for register_verify resend
+        if (action === 'register_verify') {
+            const pendingRegistrations = getCollection('pending_registrations');
+            await pendingRegistrations.updateMany(
+                { email: normalizedEmail, status: 'PENDING' },
+                { $set: { sessionTokenHash, updatedAt: new Date() } }
+            );
+        }
+
         // Send email
         try {
             await sendOtpEmail(normalizedEmail, otp, action);
@@ -508,16 +545,33 @@ function generateSignature(payload, secretKey) {
 }
 
 /**
+ * Map internal action to Apps Script action type
+ * Apps Script only accepts: verify, reset_password, login
+ */
+function mapActionType(action) {
+    const mapping = {
+        'verify': 'verify',
+        'register_verify': 'verify',
+        'reset_password': 'reset_password',
+        'login_2fa': 'login',
+    };
+    return mapping[action] || 'verify';
+}
+
+/**
  * Send OTP email using Apps Script with HMAC signature
  */
 async function sendOtpEmail(email, otp, action) {
     const appScriptUrl = process.env.OTP_EMAIL_URL;
 
+    // Map action to Apps Script compatible actionType
+    const actionType = mapActionType(action);
+
     const actionText = {
         verify: 'xác thực email',
         reset_password: 'đặt lại mật khẩu',
         login: 'đăng nhập',
-    }[action] || 'xác thực';
+    }[actionType] || 'xác thực';
 
     // Generate nonce and timestamp for signature
     const nonce = crypto.randomBytes(16).toString('hex');
@@ -526,11 +580,11 @@ async function sendOtpEmail(email, otp, action) {
     const emailData = {
         action: 'sendOtp',
         email,
-        otp,
-        actionType: action,
+        otp,  // OTP đã được derive từ sessionToken, gửi trực tiếp
+        actionType,  // Sử dụng actionType đã được map
         actionText,
         ttlMinutes: OTP_CONFIG.TTL_MINUTES,
-        appName: 'ContestHub',
+        appName: 'Blanc',
         // Security fields for HMAC verification
         nonce,
         timestamp,

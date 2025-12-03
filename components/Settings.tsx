@@ -28,8 +28,8 @@ const Settings: React.FC = () => {
 
   // Mock Settings State
   const [settings, setSettings] = useState({
-    siteName: 'ContestHub',
-    supportEmail: 'support@contesthub.edu.vn',
+    siteName: 'Blanc',
+    supportEmail: 'support@blanc.edu.vn',
     maintenanceMode: false,
     emailNotifs: true,
     pushNotifs: false,
@@ -87,7 +87,7 @@ const Settings: React.FC = () => {
 
       <div className="flex flex-col lg:flex-row gap-6">
         {/* Sidebar Navigation */}
-        <div className="w-full lg:w-64 flex-shrink-0">
+        <div className="w-full lg:w-64 shrink-0">
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
             <nav className="flex flex-col">
               {tabs.map((tab) => {
@@ -97,8 +97,8 @@ const Settings: React.FC = () => {
                     key={tab.id}
                     onClick={() => setActiveTab(tab.id as any)}
                     className={`flex items-center gap-3 px-4 py-3 text-sm font-medium transition-colors border-l-4 ${activeTab === tab.id
-                        ? 'border-emerald-500 bg-emerald-50 text-emerald-700'
-                        : 'border-transparent text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                      ? 'border-emerald-500 bg-emerald-50 text-emerald-700'
+                      : 'border-transparent text-gray-600 hover:bg-gray-50 hover:text-gray-900'
                       }`}
                   >
                     <Icon size={18} />
@@ -279,8 +279,8 @@ const Settings: React.FC = () => {
                       onClick={handleGenerateAI}
                       disabled={!announceTopic || isGenerating}
                       className={`w-full py-2.5 rounded-lg font-medium text-white flex items-center justify-center gap-2 transition-all ${!announceTopic || isGenerating
-                          ? 'bg-emerald-300 cursor-not-allowed'
-                          : 'bg-emerald-600 hover:bg-emerald-700 shadow-md'
+                        ? 'bg-emerald-300 cursor-not-allowed'
+                        : 'bg-emerald-600 hover:bg-emerald-700 shadow-md'
                         }`}
                     >
                       {isGenerating ? (

@@ -135,7 +135,7 @@ const AuditLog: React.FC = () => {
 
       {/* AI Analysis Panel */}
       {aiAnalysis && (
-        <div className="bg-gradient-to-r from-slate-800 to-slate-900 text-white rounded-xl p-6 shadow-md border-l-4 border-emerald-500 animate-fade-in-up">
+        <div className="bg-linear-to-r from-slate-800 to-slate-900 text-white rounded-xl p-6 shadow-md border-l-4 border-emerald-500 animate-fade-in-up">
           <div className="flex items-center gap-2 mb-3">
             <ShieldAlert className="text-emerald-400" />
             <h3 className="font-bold text-lg">Gemini Security Analysis</h3>

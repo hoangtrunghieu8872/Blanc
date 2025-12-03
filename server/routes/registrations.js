@@ -187,7 +187,7 @@ router.get('/', authGuard, async (req, res, next) => {
     }
 });
 
-// GET /api/registrations/schedule - Get user's contest schedule for calendar
+// GET /api/registrations/schedule - Get user's contest & course schedule for calendar
 router.get('/schedule', authGuard, async (req, res, next) => {
     try {
         await connectToDatabase();
@@ -211,47 +211,101 @@ router.get('/schedule', authGuard, async (req, res, next) => {
             return res.status(400).json({ error: 'Invalid date format' });
         }
 
-        // Get active registrations
+        const userObjectId = new ObjectId(userId);
+        const schedule = [];
+
+        // Get active contest registrations
         const registrations = await getCollection('registrations')
             .find({
-                userId: new ObjectId(userId),
+                userId: userObjectId,
                 status: 'active'
             })
             .toArray();
 
         const contestIds = registrations.map(r => r.contestId).filter(Boolean);
 
-        if (contestIds.length === 0) {
-            return res.json({ schedule: [], totalActive: 0 });
+        // Get contests within date range
+        if (contestIds.length > 0) {
+            const contests = await getCollection('contests')
+                .find({
+                    _id: { $in: contestIds },
+                    $or: [
+                        { dateStart: { $gte: startDate.toISOString(), $lte: endDate.toISOString() } },
+                        { deadline: { $gte: startDate.toISOString(), $lte: endDate.toISOString() } }
+                    ]
+                })
+                .project({ title: 1, organizer: 1, dateStart: 1, deadline: 1, status: 1, tags: 1, image: 1 })
+                .toArray();
+
+            contests.forEach(contest => {
+                schedule.push({
+                    id: contest._id.toString(),
+                    title: contest.title,
+                    organizer: contest.organizer,
+                    dateStart: contest.dateStart,
+                    deadline: contest.deadline,
+                    status: contest.status,
+                    tags: contest.tags || [],
+                    image: contest.image,
+                    type: 'contest',
+                });
+            });
         }
 
-        // Get contests within date range
-        const contests = await getCollection('contests')
+        // Get active course enrollments
+        const enrollments = await getCollection('enrollments')
             .find({
-                _id: { $in: contestIds },
-                $or: [
-                    { dateStart: { $gte: startDate.toISOString(), $lte: endDate.toISOString() } },
-                    { deadline: { $gte: startDate.toISOString(), $lte: endDate.toISOString() } }
-                ]
+                userId: userObjectId,
+                status: 'active'
             })
-            .project({ title: 1, organizer: 1, dateStart: 1, deadline: 1, status: 1, tags: 1, image: 1 })
             .toArray();
 
-        const schedule = contests.map(contest => ({
-            id: contest._id.toString(),
-            title: contest.title,
-            organizer: contest.organizer,
-            dateStart: contest.dateStart,
-            deadline: contest.deadline,
-            status: contest.status,
-            tags: contest.tags || [],
-            image: contest.image,
-            type: 'contest',
-        }));
+        const courseIds = enrollments.map(e => e.courseId).filter(Boolean);
+
+        // Get courses with schedule info within date range
+        if (courseIds.length > 0) {
+            const courses = await getCollection('courses')
+                .find({
+                    _id: { $in: courseIds },
+                    $or: [
+                        { startDate: { $exists: true } },
+                        { endDate: { $exists: true } }
+                    ]
+                })
+                .project({ title: 1, instructor: 1, startDate: 1, endDate: 1, level: 1, image: 1, duration: 1, hoursPerWeek: 1 })
+                .toArray();
+
+            courses.forEach(course => {
+                // Use startDate and endDate if available, otherwise use enrollment date
+                const enrollment = enrollments.find(e => e.courseId?.toString() === course._id.toString());
+                const courseStartDate = course.startDate || enrollment?.enrolledAt?.toISOString();
+                const courseEndDate = course.endDate || (course.startDate ?
+                    // If no end date but has start date, estimate based on duration or 30 days
+                    new Date(new Date(course.startDate).getTime() + 30 * 24 * 60 * 60 * 1000).toISOString()
+                    : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString());
+
+                // Check if course falls within date range
+                const start = new Date(courseStartDate);
+                const end = new Date(courseEndDate);
+                if (start <= endDate && end >= startDate) {
+                    schedule.push({
+                        id: course._id.toString(),
+                        title: `📚 ${course.title}`,
+                        organizer: course.instructor,
+                        dateStart: courseStartDate,
+                        deadline: courseEndDate,
+                        status: 'OPEN',
+                        tags: [course.level, course.duration || '', course.hoursPerWeek ? `${course.hoursPerWeek}h/tuần` : ''].filter(Boolean),
+                        image: course.image,
+                        type: 'course',
+                    });
+                }
+            });
+        }
 
         res.json({
             schedule,
-            totalActive: registrations.length
+            totalActive: registrations.length + enrollments.length
         });
     } catch (error) {
         next(error);

@@ -415,7 +415,7 @@ router.post('/test', authGuard, async (req, res, next) => {
                     contestTitle: 'Cuộc thi thử nghiệm',
                     contestDate: 'Thứ Bảy, 30 tháng 11, 2024',
                     contestTime: '09:00',
-                    contestUrl: 'https://contesthub.com',
+                    contestUrl: 'https://blanc.com',
                     reminderType: '1h'
                 });
                 break;
@@ -428,7 +428,7 @@ router.post('/test', authGuard, async (req, res, next) => {
                     courseTitle: 'Khóa học thử nghiệm',
                     updateType: 'lesson',
                     updateTitle: 'Bài học mới: Test Notification',
-                    courseUrl: 'https://contesthub.com'
+                    courseUrl: 'https://blanc.com'
                 });
                 break;
 
@@ -438,7 +438,7 @@ router.post('/test', authGuard, async (req, res, next) => {
                     email: user.email,
                     userName: user.name || 'bạn',
                     title: 'Thông báo thử nghiệm',
-                    message: 'Đây là email thử nghiệm hệ thống thông báo của ContestHub.',
+                    message: 'Đây là email thử nghiệm hệ thống thông báo của Blanc.',
                     severity: 'info'
                 });
                 break;

@@ -280,10 +280,25 @@ const Auth: React.FC<{ type: 'login' | 'register' }> = ({ type }) => {
     setError(null);
 
     try {
-      const response = await api.post<RegisterInitiateResponse>('/auth/register/initiate', formData);
+      // Generate session token for OTP verification
+      const newSessionToken = generateSessionToken();
+
+      // Step 1: Initiate registration with sessionToken
+      const response = await api.post<RegisterInitiateResponse>('/auth/register/initiate', {
+        ...formData,
+        sessionToken: newSessionToken,
+      });
 
       // Save session token for OTP verification
-      setSessionToken(response.sessionToken);
+      setSessionToken(newSessionToken);
+
+      // Step 2: Request OTP to be sent to email
+      await api.post('/otp/request', {
+        email: formData.email,
+        sessionToken: newSessionToken,
+        action: 'register_verify',
+      });
+
       setOtpExpiresAt(new Date(response.expiresAt));
       setCountdown(60); // Start 60s countdown for resend
 
@@ -321,10 +336,21 @@ const Auth: React.FC<{ type: 'login' | 'register' }> = ({ type }) => {
     setOtpError('');
 
     try {
-      const response = await api.post<AuthResponse>('/auth/register/verify', {
+      // Step 1: Verify OTP via /otp/verify endpoint
+      const otpResult = await api.post<{
+        ok: boolean;
+        verificationToken: string;
+        action: string;
+      }>('/otp/verify', {
         email: formData.email,
         sessionToken,
         otp,
+      });
+
+      // Step 2: Complete registration with verificationToken
+      const response = await api.post<AuthResponse>('/auth/register/verify', {
+        email: formData.email,
+        verificationToken: otpResult.verificationToken,
       });
 
       // Save token temporarily
@@ -342,6 +368,8 @@ const Auth: React.FC<{ type: 'login' | 'register' }> = ({ type }) => {
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Đã xảy ra lỗi';
       setOtpError(errorMessage);
+      // Reset OTP input on error
+      setOtp('');
     } finally {
       setIsVerifying(false);
     }
@@ -434,9 +462,17 @@ const Auth: React.FC<{ type: 'login' | 'register' }> = ({ type }) => {
       });
 
       if (response.requiresOTP) {
-        // OTP verification required
+        // OTP verification required - send OTP via /otp/request
+        const otpSessionToken = response.sessionToken || newSessionToken;
+
+        await api.post('/otp/request', {
+          email: formData.email,
+          sessionToken: otpSessionToken,
+          action: 'login_2fa',
+        });
+
         setRequires2FA(true);
-        setLogin2FASessionToken(response.sessionToken || newSessionToken);
+        setLogin2FASessionToken(otpSessionToken);
         setOtpExpiresAt(new Date(response.expiresAt || Date.now() + 2 * 60 * 1000));
         setCountdown(60);
       } else if (response.token && response.user) {
@@ -552,6 +588,7 @@ const Auth: React.FC<{ type: 'login' | 'register' }> = ({ type }) => {
         placeholder="••••••••"
         value={formData.password}
         onChange={handleChange}
+        autoComplete="new-password"
         required
       />
 
@@ -655,7 +692,7 @@ const Auth: React.FC<{ type: 'login' | 'register' }> = ({ type }) => {
 
       {/* Primary Role */}
       <div>
-        <label className="block text-sm font-medium text-slate-700 mb-1.5 flex items-center gap-2">
+        <label className="text-sm font-medium text-slate-700 mb-1.5 flex items-center gap-2">
           <Briefcase className="w-4 h-4 text-slate-400" />
           Vai trò chính của bạn
         </label>
@@ -679,7 +716,7 @@ const Auth: React.FC<{ type: 'login' | 'register' }> = ({ type }) => {
 
       {/* Experience Level */}
       <div>
-        <label className="block text-sm font-medium text-slate-700 mb-1.5 flex items-center gap-2">
+        <label className="text-sm font-medium text-slate-700 mb-1.5 flex items-center gap-2">
           <Target className="w-4 h-4 text-slate-400" />
           Cấp độ kinh nghiệm
         </label>
@@ -701,7 +738,7 @@ const Auth: React.FC<{ type: 'login' | 'register' }> = ({ type }) => {
 
       {/* Location */}
       <div>
-        <label className="block text-sm font-medium text-slate-700 mb-1.5 flex items-center gap-2">
+        <label className="text-sm font-medium text-slate-700 mb-1.5 flex items-center gap-2">
           <MapPin className="w-4 h-4 text-slate-400" />
           Địa điểm
         </label>
@@ -715,7 +752,7 @@ const Auth: React.FC<{ type: 'login' | 'register' }> = ({ type }) => {
 
       {/* Skills */}
       <div>
-        <label className="block text-sm font-medium text-slate-700 mb-1.5 flex items-center gap-2">
+        <label className="text-sm font-medium text-slate-700 mb-1.5 flex items-center gap-2">
           <Code className="w-4 h-4 text-slate-400" />
           Kỹ năng chính
         </label>
@@ -734,7 +771,7 @@ const Auth: React.FC<{ type: 'login' | 'register' }> = ({ type }) => {
         </label>
         <textarea
           name="learningGoals"
-          placeholder="Bạn muốn đạt được điều gì khi tham gia ContestHub?"
+          placeholder="Bạn muốn đạt được điều gì khi tham gia Blanc?"
           value={profileData.learningGoals}
           onChange={handleProfileChange}
           rows={2}
@@ -783,6 +820,7 @@ const Auth: React.FC<{ type: 'login' | 'register' }> = ({ type }) => {
         placeholder="••••••••"
         value={formData.password}
         onChange={handleChange}
+        autoComplete="current-password"
         required
       />
 
@@ -998,7 +1036,7 @@ const Auth: React.FC<{ type: 'login' | 'register' }> = ({ type }) => {
             </div>
           )}
 
-          <div className="relative z-10 text-sm opacity-80">© 2024 ContestHub Inc.</div>
+          <div className="relative z-10 text-sm opacity-80">© 2024 Blanc Inc.</div>
         </div>
 
       </Card>

@@ -21,6 +21,8 @@ import usersRouter from './routes/users.js';
 import chatRouter from './routes/chat.js';
 import matchingRouter from './routes/matching.js';
 import adminRouter from './routes/admin.js';
+import reviewsRouter from './routes/reviews.js';
+import documentsRouter from './routes/documents.js';
 
 const app = express();
 const port = process.env.PORT || 4000;
@@ -63,6 +65,8 @@ app.use('/api/users', usersRouter);
 app.use('/api/chat', chatRouter);
 app.use('/api/matching', matchingRouter);
 app.use('/api/admin', adminRouter);
+app.use('/api/reviews', reviewsRouter);
+app.use('/api/documents', documentsRouter);
 
 app.use((req, res) => {
   res.status(404).json({ error: 'Not Found' });

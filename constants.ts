@@ -9,67 +9,70 @@ export const MOCK_USERS: User[] = [
 ];
 
 export const MOCK_CONTESTS: Contest[] = [
-  { 
-    id: '101', 
-    title: 'Hackathon 2024: AI Innovation', 
-    organizer: 'Tech Club', 
-    dateStart: '2024-06-15', 
-    deadline: '2024-06-01', 
-    status: 'OPEN', 
-    fee: 100000, 
-    tags: ['AI', 'Python', 'Innovation'], 
+  {
+    id: '101',
+    title: 'Hackathon 2024: AI Innovation',
+    organizer: 'Tech Club',
+    dateStart: '2024-06-15',
+    deadline: '2024-06-01',
+    status: 'OPEN',
+    fee: 100000,
+    tags: ['AI', 'Python', 'Innovation'],
     image: 'https://picsum.photos/seed/hackathon/800/400',
     description: 'A 48-hour challenge to build the next generation of AI tools.',
-    participants: 120
+    maxParticipants: 200,
+    registrationCount: 120
   },
-  { 
-    id: '102', 
-    title: 'Code War: Algorithms', 
-    organizer: 'Dept of CS', 
-    dateStart: '2024-05-20', 
-    deadline: '2024-05-18', 
-    status: 'CLOSED', 
-    fee: 50000, 
-    tags: ['Algorithms', 'C++'], 
+  {
+    id: '102',
+    title: 'Code War: Algorithms',
+    organizer: 'Dept of CS',
+    dateStart: '2024-05-20',
+    deadline: '2024-05-18',
+    status: 'CLOSED',
+    fee: 50000,
+    tags: ['Algorithms', 'C++'],
     image: 'https://picsum.photos/seed/algo/800/400',
     description: 'Test your algorithmic skills against the best.',
-    participants: 350
+    maxParticipants: 500,
+    registrationCount: 350
   },
-  { 
-    id: '103', 
-    title: 'Web Design Sprint', 
-    organizer: 'Design Faculty', 
-    dateStart: '2024-07-01', 
-    deadline: '2024-06-25', 
-    status: 'OPEN', 
-    fee: 150000, 
-    tags: ['UI/UX', 'Figma', 'React'], 
+  {
+    id: '103',
+    title: 'Web Design Sprint',
+    organizer: 'Design Faculty',
+    dateStart: '2024-07-01',
+    deadline: '2024-06-25',
+    status: 'OPEN',
+    fee: 150000,
+    tags: ['UI/UX', 'Figma', 'React'],
     image: 'https://picsum.photos/seed/design/800/400',
     description: 'Create the most beautiful landing page.',
-    participants: 45
+    maxParticipants: 100,
+    registrationCount: 45
   },
 ];
 
 export const MOCK_COURSES: Course[] = [
-  { 
-    id: '201', 
-    title: 'React Mastery', 
-    instructor: 'Dr. Smith', 
-    price: 500000, 
-    rating: 4.8, 
-    reviewsCount: 120, 
-    level: 'Intermediate', 
+  {
+    id: '201',
+    title: 'React Mastery',
+    instructor: 'Dr. Smith',
+    price: 500000,
+    rating: 4.8,
+    reviewsCount: 120,
+    level: 'Intermediate',
     image: 'https://picsum.photos/seed/react/400/300',
     description: 'Deep dive into Hooks, Context API, and Performance Optimization.'
   },
-  { 
-    id: '202', 
-    title: 'Python for Data Science', 
-    instructor: 'Prof. Johnson', 
-    price: 600000, 
-    rating: 4.9, 
-    reviewsCount: 300, 
-    level: 'Advanced', 
+  {
+    id: '202',
+    title: 'Python for Data Science',
+    instructor: 'Prof. Johnson',
+    price: 600000,
+    rating: 4.9,
+    reviewsCount: 300,
+    level: 'Advanced',
     image: 'https://picsum.photos/seed/python/400/300',
     description: 'Master Pandas, NumPy, and Machine Learning concepts.'
   },
@@ -136,7 +139,7 @@ export const MOCK_AUDIT_LOGS: AuditLogEntry[] = [
     status: 'Success',
     details: 'Enabled Two-Factor Authentication enforcement.'
   },
-   {
+  {
     id: 'log_007',
     action: 'API_KEY_ACCESS',
     user: 'Unknown',
@@ -153,40 +156,40 @@ export const MOCK_NOTIFICATIONS: Notification[] = [
     id: 'n1',
     title: 'New Contest Approval',
     message: 'The "AI Hackathon 2024" requires your approval to go live.',
-    type: 'warning',
-    timestamp: '10 min ago',
-    read: false
+    type: 'system',
+    time: '10 min ago',
+    isRead: false
   },
   {
     id: 'n2',
     title: 'System Update',
     message: 'Platform maintenance scheduled for tonight at 2 AM.',
-    type: 'info',
-    timestamp: '1 hour ago',
-    read: false
+    type: 'announcement',
+    time: '1 hour ago',
+    isRead: false
   },
   {
     id: 'n3',
     title: 'High Traffic Alert',
     message: 'Server load reached 85% capacity due to Hackathon registration.',
-    type: 'error',
-    timestamp: '2 hours ago',
-    read: true
+    type: 'system',
+    time: '2 hours ago',
+    isRead: true
   },
-   {
+  {
     id: 'n4',
     title: 'New User Milestone',
     message: 'We reached 2,500 active students on the platform!',
-    type: 'success',
-    timestamp: '5 hours ago',
-    read: true
+    type: 'reward',
+    time: '5 hours ago',
+    isRead: true
   },
   {
     id: 'n5',
     title: 'Course Review',
     message: 'Dr. Smith published a new course that needs review.',
-    type: 'info',
-    timestamp: '1 day ago',
-    read: true
+    type: 'courseUpdate',
+    time: '1 day ago',
+    isRead: true
   }
 ];

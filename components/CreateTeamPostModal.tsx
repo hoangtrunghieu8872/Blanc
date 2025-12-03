@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { X, Users, Calendar, MessageSquare, AlertCircle, Loader2, Check, Plus, Minus, ChevronDown, ChevronUp, UserPlus, Search } from 'lucide-react';
 import { Button, Card, Badge, Input, Dropdown, DropdownOption } from './ui/Common';
 import { api } from '../lib/api';
-import { TeamPostCreate, Contest, RoleSlot } from '../types';
+import { TeamPostCreate, Contest, RoleSlot, TeamPost } from '../types';
 
 interface InvitedMember {
     id: string;
@@ -24,6 +24,7 @@ interface CreateTeamPostModalProps {
     isOpen: boolean;
     onClose: () => void;
     onSuccess?: () => void;
+    editingPost?: TeamPost | null;
 }
 
 const ROLES = [
@@ -60,7 +61,9 @@ const SKILL_SUGGESTIONS = [
     'Agile/Scrum', 'Leadership', 'Communication', 'Problem Solving'
 ];
 
-const CreateTeamPostModal: React.FC<CreateTeamPostModalProps> = ({ isOpen, onClose, onSuccess }) => {
+const CreateTeamPostModal: React.FC<CreateTeamPostModalProps> = ({ isOpen, onClose, onSuccess, editingPost = null }) => {
+    const isEditMode = !!editingPost;
+    
     const [formData, setFormData] = useState<TeamPostCreate>({
         title: '',
         description: '',
@@ -119,7 +122,7 @@ const CreateTeamPostModal: React.FC<CreateTeamPostModalProps> = ({ isOpen, onClo
         }
     }, [isOpen]);
 
-    // Reset form when modal closes
+    // Reset form when modal closes OR populate with editing data
     useEffect(() => {
         if (!isOpen) {
             setFormData({
@@ -142,8 +145,39 @@ const CreateTeamPostModal: React.FC<CreateTeamPostModalProps> = ({ isOpen, onClo
             setMemberSearchQuery('');
             setMemberSearchResults([]);
             setShowMemberSuggestions(false);
+        } else if (editingPost) {
+            // Populate form with editing post data
+            let deadlineValue = '';
+            try {
+                if (editingPost.deadline) {
+                    const date = new Date(editingPost.deadline);
+                    if (!isNaN(date.getTime())) {
+                        deadlineValue = date.toISOString().split('T')[0];
+                    }
+                }
+            } catch (e) {
+                console.error('Error parsing deadline:', e);
+            }
+            
+            setFormData({
+                title: editingPost.title || '',
+                description: editingPost.description || '',
+                contestId: editingPost.contestId || '',
+                rolesNeeded: Array.isArray(editingPost.rolesNeeded) ? editingPost.rolesNeeded : [],
+                roleSlots: Array.isArray(editingPost.roleSlots) ? editingPost.roleSlots : [],
+                maxMembers: editingPost.maxMembers || 4,
+                requirements: editingPost.requirements || '',
+                skills: Array.isArray(editingPost.skills) ? editingPost.skills : [],
+                contactMethod: (['message', 'email', 'both'].includes(editingPost.contactMethod) 
+                    ? editingPost.contactMethod 
+                    : 'both') as 'message' | 'email' | 'both',
+                deadline: deadlineValue,
+                invitedMembers: []
+            });
+            setError(null);
+            setSuccess(false);
         }
-    }, [isOpen]);
+    }, [isOpen, editingPost]);
 
     // Search users for tagging
     const searchUsers = useCallback(async (query: string) => {
@@ -306,7 +340,13 @@ const CreateTeamPostModal: React.FC<CreateTeamPostModalProps> = ({ isOpen, onClo
                 invitedMembers: formData.invitedMembers?.length ? formData.invitedMembers : undefined
             };
 
-            await api.post('/teams', payload);
+            if (isEditMode && editingPost) {
+                // Update existing post using PUT for full update
+                await api.put(`/teams/${editingPost.id}`, payload);
+            } else {
+                // Create new post
+                await api.post('/teams', payload);
+            }
             setSuccess(true);
 
             setTimeout(() => {
@@ -314,7 +354,7 @@ const CreateTeamPostModal: React.FC<CreateTeamPostModalProps> = ({ isOpen, onClo
                 onClose();
             }, 1500);
         } catch (err) {
-            setError(err instanceof Error ? err.message : 'Có lỗi xảy ra khi đăng tin');
+            setError(err instanceof Error ? err.message : isEditMode ? 'Có lỗi xảy ra khi cập nhật' : 'Có lỗi xảy ra khi đăng tin');
         } finally {
             setIsSubmitting(false);
         }
@@ -344,8 +384,12 @@ const CreateTeamPostModal: React.FC<CreateTeamPostModalProps> = ({ isOpen, onClo
                             <Users className="w-5 h-5 text-primary-600" />
                         </div>
                         <div>
-                            <h2 className="text-xl font-bold text-slate-900">Đăng tin tìm đội</h2>
-                            <p className="text-sm text-slate-500">Tìm đồng đội cho cuộc thi của bạn</p>
+                            <h2 className="text-xl font-bold text-slate-900">
+                                {isEditMode ? 'Chỉnh sửa bài đăng' : 'Đăng tin tìm đội'}
+                            </h2>
+                            <p className="text-sm text-slate-500">
+                                {isEditMode ? 'Cập nhật thông tin bài đăng của bạn' : 'Tìm đồng đội cho cuộc thi của bạn'}
+                            </p>
                         </div>
                     </div>
                     <button
@@ -364,8 +408,14 @@ const CreateTeamPostModal: React.FC<CreateTeamPostModalProps> = ({ isOpen, onClo
                         <div className="w-16 h-16 mx-auto mb-4 bg-green-100 rounded-full flex items-center justify-center">
                             <Check className="w-8 h-8 text-green-600" />
                         </div>
-                        <h3 className="text-xl font-bold text-slate-900 mb-2">Đăng tin thành công!</h3>
-                        <p className="text-slate-500">Bài đăng của bạn đã được tạo và đang chờ đồng đội tham gia.</p>
+                        <h3 className="text-xl font-bold text-slate-900 mb-2">
+                            {isEditMode ? 'Cập nhật thành công!' : 'Đăng tin thành công!'}
+                        </h3>
+                        <p className="text-slate-500">
+                            {isEditMode 
+                                ? 'Bài đăng của bạn đã được cập nhật thành công.' 
+                                : 'Bài đăng của bạn đã được tạo và đang chờ đồng đội tham gia.'}
+                        </p>
                     </div>
                 ) : (
                     /* Form */
@@ -373,7 +423,7 @@ const CreateTeamPostModal: React.FC<CreateTeamPostModalProps> = ({ isOpen, onClo
                         {/* Error Alert */}
                         {error && (
                             <div className="flex items-start gap-3 p-4 bg-red-50 border border-red-100 rounded-xl">
-                                <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
+                                <AlertCircle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
                                 <div>
                                     <p className="font-medium text-red-800">Có lỗi xảy ra</p>
                                     <p className="text-sm text-red-600 mt-1">{error}</p>
@@ -790,10 +840,10 @@ const CreateTeamPostModal: React.FC<CreateTeamPostModalProps> = ({ isOpen, onClo
                                                         <img
                                                             src={user.avatar}
                                                             alt={user.name}
-                                                            className="w-9 h-9 rounded-full object-cover flex-shrink-0"
+                                                            className="w-9 h-9 rounded-full object-cover shrink-0"
                                                         />
                                                     ) : (
-                                                        <div className="w-9 h-9 rounded-full bg-gradient-to-br from-primary-400 to-primary-600 flex items-center justify-center flex-shrink-0">
+                                                        <div className="w-9 h-9 rounded-full bg-linear-to-br from-primary-400 to-primary-600 flex items-center justify-center shrink-0">
                                                             <span className="text-sm font-medium text-white">
                                                                 {user.name?.charAt(0)?.toUpperCase() || '?'}
                                                             </span>
@@ -803,7 +853,7 @@ const CreateTeamPostModal: React.FC<CreateTeamPostModalProps> = ({ isOpen, onClo
                                                         <p className="font-medium text-slate-800 truncate">{user.name}</p>
                                                         <p className="text-xs text-slate-500 truncate">{user.email}</p>
                                                     </div>
-                                                    <Plus className="w-4 h-4 text-primary-500 flex-shrink-0" />
+                                                    <Plus className="w-4 h-4 text-primary-500 shrink-0" />
                                                 </button>
                                             ))
                                         ) : (
@@ -873,10 +923,10 @@ const CreateTeamPostModal: React.FC<CreateTeamPostModalProps> = ({ isOpen, onClo
                                 {isSubmitting ? (
                                     <>
                                         <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                                        Đang đăng...
+                                        {isEditMode ? 'Đang cập nhật...' : 'Đang đăng...'}
                                     </>
                                 ) : (
-                                    'Đăng tin tìm đội'
+                                    isEditMode ? 'Cập nhật bài đăng' : 'Đăng tin tìm đội'
                                 )}
                             </Button>
                         </div>

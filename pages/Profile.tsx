@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Calendar as CalendarIcon, Trophy, BookOpen, Clock, Settings, LogOut, ChevronRight, Loader2, Play, CheckCircle2, BarChart3, Trash2 } from 'lucide-react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Calendar as CalendarIcon, Trophy, BookOpen, Clock, Settings, LogOut, ChevronRight, Loader2, Play, CheckCircle2, BarChart3, Trash2, Flame } from 'lucide-react';
 import { Button, Card, Badge, Input, Tabs } from '../components/ui/Common';
 import ScheduleCalendar from '../components/ScheduleCalendar';
 import WorkloadWarningCard from '../components/WorkloadWarningCard';
 import UserSettings from '../components/UserSettings';
 import { ScheduleEvent, User, CourseEnrollment } from '../types';
-import { useUserRegistrations, useWorkloadAnalysis, useEnrolledCourses } from '../lib/hooks';
+import { useUserRegistrations, useWorkloadAnalysis, useEnrolledCourses, useStreak } from '../lib/hooks';
 
 type TabType = 'overview' | 'schedule' | 'courses' | 'settings';
 
@@ -26,9 +26,18 @@ function getStoredUser(): User | null {
 
 const Profile: React.FC = () => {
    const navigate = useNavigate();
-   const [activeTab, setActiveTab] = useState<TabType>('overview');
+   const [searchParams] = useSearchParams();
+   const tabFromUrl = searchParams.get('tab') as TabType | null;
+   const [activeTab, setActiveTab] = useState<TabType>(tabFromUrl && ['overview', 'schedule', 'courses', 'settings'].includes(tabFromUrl) ? tabFromUrl : 'overview');
    const [currentUser, setCurrentUser] = useState<User | null>(() => getStoredUser());
    const [isInitialized, setIsInitialized] = useState(false);
+
+   // Update tab when URL changes
+   useEffect(() => {
+      if (tabFromUrl && ['overview', 'schedule', 'courses', 'settings'].includes(tabFromUrl)) {
+         setActiveTab(tabFromUrl);
+      }
+   }, [tabFromUrl]);
 
    // Listen for auth changes (avatar updates, profile changes)
    useEffect(() => {
@@ -67,6 +76,15 @@ const Profile: React.FC = () => {
       refetch: refetchCourses,
       error: coursesError
    } = useEnrolledCourses({ status: 'all', autoFetch: !!currentUser });
+
+   // Streak data - auto check-in on page load
+   const {
+      currentStreak,
+      longestStreak,
+      todayCheckedIn,
+      isLoading: streakLoading,
+      message: streakMessage
+   } = useStreak({ autoCheckin: !!currentUser });
 
    // Show loading while initializing or if no user
    if (!isInitialized || !currentUser) {
@@ -146,14 +164,14 @@ const Profile: React.FC = () => {
                                  onClick={() => navigate(`/contests/${reg.contestId}`)}
                                  className="flex items-center p-3 rounded-lg hover:bg-slate-50 border border-slate-100 transition-colors cursor-pointer"
                               >
-                                 <div className="w-12 h-12 rounded-lg bg-slate-200 flex-shrink-0 overflow-hidden mr-4">
+                                 <div className="w-12 h-12 rounded-lg bg-slate-200 shrink-0 overflow-hidden mr-4">
                                     <img
                                        src={reg.contest.image || `https://picsum.photos/seed/${reg.contestId}/100/100`}
                                        alt={reg.contest.title}
                                        className="w-full h-full object-cover"
                                     />
                                  </div>
-                                 <div className="flex-grow min-w-0">
+                                 <div className="grow min-w-0">
                                     <h4 className="font-semibold text-slate-900 truncate">{reg.contest.title}</h4>
                                     <p className="text-xs text-slate-500">
                                        {new Date(reg.contest.dateStart).toLocaleDateString('vi-VN')} - {reg.contest.organizer}
@@ -220,7 +238,7 @@ const Profile: React.FC = () => {
                            <BookOpen className="w-5 h-5 mr-2 text-primary-600" />
                            Khóa học của tôi
                         </h3>
-                        <Button variant="outline" size="sm" onClick={() => navigate('/marketplace')}>
+                        <Button variant="secondary" size="sm" onClick={() => navigate('/marketplace')}>
                            Khám phá thêm
                         </Button>
                      </div>
@@ -237,7 +255,7 @@ const Profile: React.FC = () => {
                                  className="flex items-start p-4 rounded-xl border border-slate-200 hover:border-primary-300 hover:shadow-md transition-all group"
                               >
                                  {/* Course Image */}
-                                 <div className="w-24 h-16 rounded-lg bg-slate-200 flex-shrink-0 overflow-hidden mr-4">
+                                 <div className="w-24 h-16 rounded-lg bg-slate-200 shrink-0 overflow-hidden mr-4">
                                     <img
                                        src={enrollment.course.image || `https://picsum.photos/seed/${enrollment.courseId}/200/150`}
                                        alt={enrollment.course.title}
@@ -246,7 +264,7 @@ const Profile: React.FC = () => {
                                  </div>
 
                                  {/* Course Info */}
-                                 <div className="flex-grow min-w-0">
+                                 <div className="grow min-w-0">
                                     <div className="flex items-start justify-between gap-2">
                                        <div className="min-w-0">
                                           <h4 className="font-semibold text-slate-900 line-clamp-1 group-hover:text-primary-600 transition-colors">
@@ -256,7 +274,7 @@ const Profile: React.FC = () => {
                                              {enrollment.course.instructor}
                                           </p>
                                        </div>
-                                       <div className="flex items-center gap-2 flex-shrink-0">
+                                       <div className="flex items-center gap-2 shrink-0">
                                           <Badge className={getLevelColor(enrollment.course.level)}>
                                              {enrollment.course.level}
                                           </Badge>
@@ -345,23 +363,49 @@ const Profile: React.FC = () => {
          default:
             return (
                <>
+                  {/* Streak Message Toast */}
+                  {streakMessage && (
+                     <div className="mb-4 p-4 bg-linear-to-r from-orange-50 to-amber-50 border border-orange-200 rounded-xl flex items-center gap-3 animate-fade-in">
+                        <Flame className="w-6 h-6 text-orange-500" />
+                        <span className="text-orange-800 font-medium">{streakMessage}</span>
+                     </div>
+                  )}
+
                   {/* Stats / Streak */}
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                      <Card className="p-4 flex items-center space-x-4">
                         <div className="p-3 bg-orange-100 text-orange-600 rounded-lg"><Trophy className="w-6 h-6" /></div>
                         <div>
-                           <div className="text-2xl font-bold text-slate-900">Top 10%</div>
-                           <div className="text-xs text-slate-500">Thứ hạng tuần</div>
+                           <div className="text-2xl font-bold text-slate-900">{longestStreak} ngày</div>
+                           <div className="text-xs text-slate-500">Kỷ lục streak</div>
+                        </div>
+                     </Card>
+                     <Card className={`p-4 flex items-center space-x-4 ${todayCheckedIn ? 'ring-2 ring-emerald-200' : ''}`}>
+                        <div className={`p-3 rounded-lg ${todayCheckedIn ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-100 text-slate-400'}`}>
+                           {streakLoading ? (
+                              <Loader2 className="w-6 h-6 animate-spin" />
+                           ) : (
+                              <Flame className="w-6 h-6" />
+                           )}
+                        </div>
+                        <div>
+                           <div className="text-2xl font-bold text-slate-900 flex items-center gap-2">
+                              {currentStreak} ngày
+                              {currentStreak >= 7 && <span className="text-lg">🔥</span>}
+                              {currentStreak >= 30 && <span className="text-lg">⭐</span>}
+                           </div>
+                           <div className="text-xs text-slate-500">
+                              {todayCheckedIn ? '✓ Đã điểm danh hôm nay' : 'Chuỗi học tập'}
+                           </div>
                         </div>
                      </Card>
                      <Card className="p-4 flex items-center space-x-4">
-                        <div className="p-3 bg-emerald-100 text-emerald-600 rounded-lg"><Clock className="w-6 h-6" /></div>
+                        <div className="p-3 bg-blue-100 text-blue-600 rounded-lg"><BookOpen className="w-6 h-6" /></div>
                         <div>
-                           <div className="text-2xl font-bold text-slate-900">12 ngày</div>
-                           <div className="text-xs text-slate-500">Chuỗi học tập</div>
+                           <div className="text-2xl font-bold text-slate-900">{activeCount + completedCount}</div>
+                           <div className="text-xs text-slate-500">Khóa học đã đăng ký</div>
                         </div>
                      </Card>
-
                   </div>
 
                   {/* Workload Warning - Shows on overview if there are warnings */}
@@ -386,13 +430,13 @@ const Profile: React.FC = () => {
                                  className="flex items-center p-3 rounded-lg hover:bg-slate-50 border border-slate-100 transition-colors cursor-pointer"
                                  onClick={() => navigate(`/contests/${reg.contestId}`)}
                               >
-                                 <div className="w-12 h-12 rounded-lg bg-slate-200 flex-shrink-0 flex flex-col items-center justify-center text-xs font-bold text-slate-600 mr-4">
+                                 <div className="w-12 h-12 rounded-lg bg-slate-200 shrink-0 flex flex-col items-center justify-center text-xs font-bold text-slate-600 mr-4">
                                     <span className="text-primary-600">
                                        {new Date(reg.contest.dateStart).toLocaleDateString('vi-VN', { month: 'short' }).toUpperCase()}
                                     </span>
                                     <span className="text-lg">{new Date(reg.contest.dateStart).getDate()}</span>
                                  </div>
-                                 <div className="flex-grow">
+                                 <div className="grow">
                                     <h4 className="font-semibold text-slate-900">{reg.contest.title}</h4>
                                     <p className="text-xs text-slate-500">
                                        {new Date(reg.contest.dateStart).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })} - {reg.contest.organizer}
@@ -431,7 +475,7 @@ const Profile: React.FC = () => {
                               <div key={enrollment.id}>
                                  <div className="flex justify-between text-sm mb-1.5">
                                     <span className="font-medium text-slate-900 line-clamp-1">{enrollment.course.title}</span>
-                                    <span className="text-slate-500 flex-shrink-0 ml-2">{enrollment.progress || 0}%</span>
+                                    <span className="text-slate-500 shrink-0 ml-2">{enrollment.progress || 0}%</span>
                                  </div>
                                  <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
                                     <div

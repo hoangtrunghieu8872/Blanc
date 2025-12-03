@@ -7,6 +7,10 @@ import { ContestList, ContestDetail } from './pages/Contests';
 import { Marketplace, CourseDetail } from './pages/Marketplace';
 import Community from './pages/Community';
 import Profile from './pages/Profile';
+import UserProfile from './pages/UserProfile';
+import MyTeamPosts from './pages/MyTeamPosts';
+import Terms from './pages/Terms';
+import Privacy from './pages/Privacy';
 import Auth from './pages/Auth';
 import ForgotPassword from './pages/ForgotPassword';
 import MaintenancePage from './components/MaintenancePage';
@@ -33,10 +37,10 @@ function getStoredUser(): User | null {
 const App: React.FC = () => {
   // Auth state from localStorage
   const [user, setUser] = useState<User | null>(getStoredUser);
-  
+
   // Maintenance mode state
   const [isMaintenanceMode, setIsMaintenanceMode] = useState(false);
-  const [siteName, setSiteName] = useState('ContestHub');
+  const [siteName, setSiteName] = useState('Blanc');
   const [isCheckingMaintenance, setIsCheckingMaintenance] = useState(true);
 
   // Check maintenance mode on mount
@@ -47,7 +51,7 @@ const App: React.FC = () => {
         if (response.ok) {
           const data = await response.json();
           setIsMaintenanceMode(data.maintenanceMode || false);
-          setSiteName(data.siteName || 'ContestHub');
+          setSiteName(data.siteName || 'Blanc');
         }
       } catch (error) {
         console.error('Failed to check maintenance status:', error);
@@ -59,7 +63,7 @@ const App: React.FC = () => {
     };
 
     checkMaintenanceMode();
-    
+
     // Check every 30 seconds for maintenance mode changes
     const interval = setInterval(checkMaintenanceMode, 30000);
     return () => clearInterval(interval);
@@ -113,13 +117,19 @@ const App: React.FC = () => {
           <Route path="/marketplace" element={<Marketplace />} />
           <Route path="/courses/:id" element={<CourseDetail />} />
           <Route path="/community" element={<Community />} />
+          <Route path="/my-team-posts" element={user ? <MyTeamPosts /> : <Navigate to="/login" />} />
           <Route path="/profile" element={user ? <Profile /> : <Navigate to="/login" />} />
+          <Route path="/user/:userId" element={user ? <UserProfile /> : <Navigate to="/login" />} />
         </Route>
 
         {/* Auth routes */}
         <Route path="/login" element={<Auth type="login" />} />
         <Route path="/register" element={<Auth type="register" />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
+
+        {/* Legal pages */}
+        <Route path="/terms" element={<Terms />} />
+        <Route path="/privacy" element={<Privacy />} />
 
         {/* Admin routes (Placeholder) */}
         <Route path="/admin" element={<div className="p-8">Admin Panel Placeholder</div>} />

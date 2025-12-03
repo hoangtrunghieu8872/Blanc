@@ -5,6 +5,7 @@ import CreateTeamPostModal from '../components/CreateTeamPostModal';
 import TeamPostDetailModal from '../components/TeamPostDetailModal';
 import TeamMembersManager from '../components/TeamMembersManager';
 import TeammateRecommendations from '../components/TeammateRecommendations';
+import UserAvatar from '../components/UserAvatar';
 import { api } from '../lib/api';
 import { TeamPost } from '../types';
 
@@ -200,7 +201,7 @@ const Community: React.FC = () => {
 
          {/* Filter Bar */}
          <form onSubmit={handleSearch} className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col md:flex-row gap-4 items-center mb-8">
-            <div className="relative flex-grow w-full">
+            <div className="relative grow w-full">
                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
                <input
                   type="text"
@@ -286,7 +287,7 @@ const Community: React.FC = () => {
                   )}
                </div>
 
-               <Button type="submit" variant="outline" className="hidden md:flex">
+               <Button type="submit" variant="secondary" className="hidden md:flex">
                   <Filter className="w-4 h-4 mr-2" />
                   Lọc
                </Button>
@@ -360,14 +361,13 @@ const Community: React.FC = () => {
                      <Card key={post.id} className="p-6 hover:border-primary-300 hover:shadow-lg transition-all group">
                         {/* Header */}
                         <div className="flex items-start gap-4 mb-4">
-                           <div className="w-12 h-12 rounded-full bg-gradient-to-br from-primary-500 to-primary-700 flex items-center justify-center text-white font-bold text-sm flex-shrink-0">
-                              {post.createdBy.avatar ? (
-                                 <img src={post.createdBy.avatar} alt="" className="w-full h-full rounded-full object-cover" />
-                              ) : (
-                                 getInitials(post.createdBy.name)
-                              )}
-                           </div>
-                           <div className="flex-grow min-w-0">
+                           <UserAvatar
+                              userId={post.createdBy.id}
+                              name={post.createdBy.name}
+                              avatar={post.createdBy.avatar}
+                              size="lg"
+                           />
+                           <div className="grow min-w-0">
                               <h3 className="font-bold text-slate-900 line-clamp-1 group-hover:text-primary-600 transition-colors">
                                  {post.title}
                               </h3>
@@ -415,7 +415,7 @@ const Community: React.FC = () => {
                                        {member.avatar ? (
                                           <img src={member.avatar} alt="" className="w-full h-full object-cover" />
                                        ) : (
-                                          <div className="w-full h-full bg-gradient-to-br from-slate-400 to-slate-500 flex items-center justify-center text-white text-xs font-medium">
+                                          <div className="w-full h-full bg-linear-to-br from-slate-400 to-slate-500 flex items-center justify-center text-white text-xs font-medium">
                                              {getInitials(member.name)}
                                           </div>
                                        )}
@@ -453,7 +453,7 @@ const Community: React.FC = () => {
                {pagination.totalPages > 1 && (
                   <div className="flex justify-center gap-2 mt-8">
                      <Button
-                        variant="outline"
+                        variant="secondary"
                         size="sm"
                         disabled={pagination.page === 1}
                         onClick={() => fetchPosts(pagination.page - 1)}
@@ -464,7 +464,7 @@ const Community: React.FC = () => {
                         Trang {pagination.page} / {pagination.totalPages}
                      </span>
                      <Button
-                        variant="outline"
+                        variant="secondary"
                         size="sm"
                         disabled={pagination.page === pagination.totalPages}
                         onClick={() => fetchPosts(pagination.page + 1)}

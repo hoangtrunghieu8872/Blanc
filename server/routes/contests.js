@@ -16,10 +16,44 @@ const contestFields = {
     tags: 1,
     image: 1,
     description: 1,
+    // New fields for complete contest info
+    location: 1,
+    locationType: 1,
+    category: 1,
+    rules: 1,
+    schedule: 1,
+    prizes: 1,
+    objectives: 1,
+    eligibility: 1,
+    organizerDetails: 1,
+    maxParticipants: 1,
+    registrationCount: 1,
     createdAt: 1,
     updatedAt: 1,
   },
 };
+
+// Get all unique tags from contests
+router.get('/tags', async (req, res, next) => {
+  try {
+    await connectToDatabase();
+
+    // Aggregate to get unique tags with count
+    const tagsAggregation = await getCollection('contests').aggregate([
+      { $unwind: '$tags' },
+      { $group: { _id: '$tags', count: { $sum: 1 } } },
+      { $sort: { count: -1 } }, // Sort by popularity
+      { $project: { tag: '$_id', count: 1, _id: 0 } }
+    ]).toArray();
+
+    res.json({
+      tags: tagsAggregation.map(t => t.tag),
+      tagsWithCount: tagsAggregation
+    });
+  } catch (error) {
+    next(error);
+  }
+});
 
 router.get('/', async (req, res, next) => {
   try {
@@ -78,6 +112,18 @@ router.post('/', authGuard, requireRole('admin'), async (req, res, next) => {
       tags: Array.isArray(body.tags) ? body.tags.map(String) : [],
       image: body.image || '',
       description: body.description || '',
+      // New fields
+      location: body.location || '',
+      locationType: body.locationType || 'online', // online, offline, hybrid
+      category: body.category || '', // Hackathon, Design Challenge, Coding Contest, etc.
+      rules: body.rules || '', // Rich text for contest rules
+      schedule: Array.isArray(body.schedule) ? body.schedule : [], // Array of {date, title, description}
+      prizes: Array.isArray(body.prizes) ? body.prizes : [], // Array of {rank, title, value, description}
+      objectives: body.objectives || '', // Contest objectives
+      eligibility: body.eligibility || '', // Eligibility requirements
+      organizerDetails: body.organizerDetails || {}, // {name, school, logo, description, contact}
+      maxParticipants: Number(body.maxParticipants) || 0,
+      registrationCount: 0,
       createdAt: new Date(),
       updatedAt: new Date(),
       createdBy: req.user?.id || null,
@@ -99,8 +145,13 @@ router.patch('/:id', authGuard, requireRole('admin'), async (req, res, next) => 
     }
 
     const updates = { ...req.body, updatedAt: new Date() };
-    const allowed = ['title', 'organizer', 'dateStart', 'deadline', 'status', 'fee', 'tags', 'image', 'description'];
-    const set = {};
+    const allowed = [
+      'title', 'organizer', 'dateStart', 'deadline', 'status', 'fee', 'tags', 'image', 'description',
+      // New fields
+      'location', 'locationType', 'category', 'rules', 'schedule', 'prizes',
+      'objectives', 'eligibility', 'organizerDetails', 'maxParticipants'
+    ];
+    const set = { updatedAt: new Date() };
     allowed.forEach((key) => {
       if (updates[key] !== undefined) {
         set[key] = updates[key];
@@ -134,6 +185,18 @@ function mapContest(doc) {
     tags: doc.tags || [],
     image: doc.image,
     description: doc.description,
+    // New fields
+    location: doc.location || '',
+    locationType: doc.locationType || 'online',
+    category: doc.category || '',
+    rules: doc.rules || '',
+    schedule: doc.schedule || [],
+    prizes: doc.prizes || [],
+    objectives: doc.objectives || '',
+    eligibility: doc.eligibility || '',
+    organizerDetails: doc.organizerDetails || {},
+    maxParticipants: doc.maxParticipants || 0,
+    registrationCount: doc.registrationCount || 0,
     createdAt: doc.createdAt,
     updatedAt: doc.updatedAt,
   };

@@ -73,9 +73,9 @@ const WarningItem: React.FC<{ warning: WorkloadWarning }> = ({ warning }) => {
     >
       <div className="flex items-start gap-3">
         {isCritical ? (
-          <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
+          <AlertCircle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
         ) : (
-          <AlertTriangle className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
+          <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
         )}
         <div className="flex-1 min-w-0">
           <p className={`text-sm font-medium ${isCritical ? 'text-red-800' : 'text-amber-800'}`}>
@@ -196,7 +196,7 @@ const WorkloadWarningCard: React.FC<WorkloadWarningCardProps> = ({ className = '
   return (
     <Card className={`overflow-hidden ${className}`}>
       {/* Header */}
-      <div className="p-4 border-b border-slate-100 bg-gradient-to-r from-slate-50 to-white">
+      <div className="p-4 border-b border-slate-100 bg-linear-to-r from-slate-50 to-white">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <h3 className="font-bold text-slate-900">Phân tích Workload</h3>
@@ -218,7 +218,7 @@ const WorkloadWarningCard: React.FC<WorkloadWarningCardProps> = ({ className = '
       </div>
 
       {/* Health Score Section */}
-      <div className="p-4 flex items-center gap-6 bg-gradient-to-b from-white to-slate-50">
+      <div className="p-4 flex items-center gap-6 bg-linear-to-b from-white to-slate-50">
         <HealthScoreRing score={analysis.healthScore} />
         <div className="flex-1 space-y-2">
           <StatCard

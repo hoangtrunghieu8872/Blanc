@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useCallback } from 'react';
-import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, Clock, MapPin, Trophy, Loader2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, Clock, MapPin, Trophy, Loader2, ChevronDown, Zap } from 'lucide-react';
 import { Card, Badge, Button } from './ui/Common';
 import { ScheduleEvent } from '../types';
 import { useUserSchedule } from '../lib/hooks';
@@ -26,6 +26,21 @@ interface ScheduleCalendarProps {
 const ScheduleCalendar: React.FC<ScheduleCalendarProps> = ({ onEventClick, className = '' }) => {
     const [currentDate, setCurrentDate] = useState(new Date());
     const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+    const [showEventJump, setShowEventJump] = useState(false);
+
+    // Fetch ALL events for jump menu (wider range)
+    const allEventsRange = useMemo(() => {
+        const start = new Date();
+        start.setMonth(start.getMonth() - 6); // 6 months ago
+        const end = new Date();
+        end.setMonth(end.getMonth() + 12); // 12 months ahead
+        return { start, end };
+    }, []);
+
+    const { schedule: allEvents } = useUserSchedule({
+        startDate: allEventsRange.start,
+        endDate: allEventsRange.end,
+    });
 
     // Calculate date range for fetching (current month ± 1 week buffer)
     const dateRange = useMemo(() => {
@@ -117,6 +132,30 @@ const ScheduleCalendar: React.FC<ScheduleCalendarProps> = ({ onEventClick, class
         setSelectedDate(new Date());
     }, []);
 
+    // Jump to event date
+    const jumpToEvent = useCallback((event: ScheduleEvent) => {
+        const eventDate = new Date(event.dateStart);
+        setCurrentDate(new Date(eventDate.getFullYear(), eventDate.getMonth(), 1));
+        setSelectedDate(eventDate);
+        setShowEventJump(false);
+    }, []);
+
+    // Sorted events for jump menu
+    const sortedUpcomingEvents = useMemo(() => {
+        const now = new Date();
+        return [...allEvents]
+            .filter(e => new Date(e.deadline) >= now) // Only upcoming/ongoing
+            .sort((a, b) => new Date(a.dateStart).getTime() - new Date(b.dateStart).getTime());
+    }, [allEvents]);
+
+    const pastEvents = useMemo(() => {
+        const now = new Date();
+        return [...allEvents]
+            .filter(e => new Date(e.deadline) < now)
+            .sort((a, b) => new Date(b.dateStart).getTime() - new Date(a.dateStart).getTime())
+            .slice(0, 5); // Last 5 past events
+    }, [allEvents]);
+
     // Get selected date events
     const selectedDateEvents = useMemo(() => {
         if (!selectedDate) return [];
@@ -135,7 +174,11 @@ const ScheduleCalendar: React.FC<ScheduleCalendarProps> = ({ onEventClick, class
     };
 
     // Get status color
-    const getStatusColor = (status: string) => {
+    const getStatusColor = (status: string, type?: string) => {
+        // Different colors for courses
+        if (type === 'course') {
+            return 'bg-blue-500';
+        }
         switch (status) {
             case 'OPEN': return 'bg-emerald-500';
             case 'FULL': return 'bg-amber-500';
@@ -158,15 +201,122 @@ const ScheduleCalendar: React.FC<ScheduleCalendarProps> = ({ onEventClick, class
     return (
         <Card className={`overflow-hidden ${className}`}>
             {/* Header */}
-            <div className="p-4 border-b border-slate-100 bg-gradient-to-r from-primary-50 to-white">
+            <div className="p-4 border-b border-slate-100 bg-linear-to-r from-primary-50 to-white">
                 <div className="flex items-center justify-between mb-4">
                     <div className="flex items-center gap-2">
                         <CalendarIcon className="w-5 h-5 text-primary-600" />
                         <h3 className="font-bold text-slate-900">Lịch thi đấu</h3>
                     </div>
-                    <Button size="sm" variant="secondary" onClick={goToToday}>
-                        Hôm nay
-                    </Button>
+                    <div className="flex items-center gap-2">
+                        {/* Jump to Event Button */}
+                        <div className="relative">
+                            <Button
+                                size="sm"
+                                variant="secondary"
+                                onClick={() => setShowEventJump(!showEventJump)}
+                                className="flex items-center gap-1"
+                                disabled={allEvents.length === 0}
+                            >
+                                <Zap className="w-3.5 h-3.5" />
+                                <span className="hidden sm:inline">Chuyển nhanh</span>
+                                <ChevronDown className={`w-3.5 h-3.5 transition-transform ${showEventJump ? 'rotate-180' : ''}`} />
+                            </Button>
+
+                            {/* Event Jump Dropdown */}
+                            {showEventJump && (
+                                <>
+                                    <div
+                                        className="fixed inset-0 z-10"
+                                        onClick={() => setShowEventJump(false)}
+                                    />
+                                    <div className="absolute right-0 top-full mt-2 w-72 bg-white rounded-xl shadow-xl border border-slate-200 z-20 max-h-80 overflow-hidden">
+                                        <div className="p-3 border-b border-slate-100 bg-slate-50">
+                                            <h4 className="font-semibold text-sm text-slate-700 flex items-center gap-2">
+                                                <Zap className="w-4 h-4 text-primary-500" />
+                                                Chuyển nhanh đến sự kiện
+                                            </h4>
+                                        </div>
+
+                                        <div className="overflow-y-auto max-h-60">
+                                            {/* Upcoming Events */}
+                                            {sortedUpcomingEvents.length > 0 && (
+                                                <div className="p-2">
+                                                    <p className="text-xs font-medium text-emerald-600 px-2 py-1">
+                                                        📅 Sắp diễn ra ({sortedUpcomingEvents.length})
+                                                    </p>
+                                                    {sortedUpcomingEvents.map(event => (
+                                                        <button
+                                                            key={event.id}
+                                                            onClick={() => jumpToEvent(event)}
+                                                            className="w-full text-left p-2 hover:bg-primary-50 rounded-lg transition-colors group"
+                                                        >
+                                                            <div className="flex items-start gap-2">
+                                                                <div className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${getStatusColor(event.status, event.type)}`} />
+                                                                <div className="flex-1 min-w-0">
+                                                                    <p className="text-sm font-medium text-slate-800 truncate group-hover:text-primary-700">
+                                                                        {event.title}
+                                                                    </p>
+                                                                    <p className="text-xs text-slate-500">
+                                                                        {new Date(event.dateStart).toLocaleDateString('vi-VN', {
+                                                                            day: '2-digit',
+                                                                            month: '2-digit',
+                                                                            year: 'numeric'
+                                                                        })}
+                                                                    </p>
+                                                                </div>
+                                                            </div>
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                            )}
+
+                                            {/* Past Events */}
+                                            {pastEvents.length > 0 && (
+                                                <div className="p-2 border-t border-slate-100">
+                                                    <p className="text-xs font-medium text-slate-400 px-2 py-1">
+                                                        📋 Đã qua
+                                                    </p>
+                                                    {pastEvents.map(event => (
+                                                        <button
+                                                            key={event.id}
+                                                            onClick={() => jumpToEvent(event)}
+                                                            className="w-full text-left p-2 hover:bg-slate-50 rounded-lg transition-colors group opacity-70"
+                                                        >
+                                                            <div className="flex items-start gap-2">
+                                                                <div className="w-2 h-2 rounded-full mt-1.5 shrink-0 bg-slate-300" />
+                                                                <div className="flex-1 min-w-0">
+                                                                    <p className="text-sm text-slate-600 truncate">
+                                                                        {event.title}
+                                                                    </p>
+                                                                    <p className="text-xs text-slate-400">
+                                                                        {new Date(event.dateStart).toLocaleDateString('vi-VN', {
+                                                                            day: '2-digit',
+                                                                            month: '2-digit',
+                                                                            year: 'numeric'
+                                                                        })}
+                                                                    </p>
+                                                                </div>
+                                                            </div>
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                            )}
+
+                                            {sortedUpcomingEvents.length === 0 && pastEvents.length === 0 && (
+                                                <div className="p-4 text-center text-sm text-slate-500">
+                                                    Chưa có sự kiện nào được đăng ký
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                </>
+                            )}
+                        </div>
+
+                        <Button size="sm" variant="secondary" onClick={goToToday}>
+                            Hôm nay
+                        </Button>
+                    </div>
                 </div>
 
                 <div className="flex items-center justify-between">
@@ -219,7 +369,7 @@ const ScheduleCalendar: React.FC<ScheduleCalendarProps> = ({ onEventClick, class
                                         key={index}
                                         onClick={() => setSelectedDate(day.date)}
                                         className={`
-                      relative p-2 min-h-[48px] rounded-lg text-sm transition-all
+                      relative p-2 min-h-12 rounded-lg text-sm transition-all
                       ${day.isCurrentMonth ? 'text-slate-900' : 'text-slate-400'}
                       ${day.isToday ? 'bg-primary-100 font-bold' : ''}
                       ${isSelected ? 'ring-2 ring-primary-500 bg-primary-50' : 'hover:bg-slate-50'}
@@ -235,7 +385,7 @@ const ScheduleCalendar: React.FC<ScheduleCalendarProps> = ({ onEventClick, class
                                                 {day.events.slice(0, 3).map((event, i) => (
                                                     <div
                                                         key={i}
-                                                        className={`w-1.5 h-1.5 rounded-full ${getStatusColor(event.status)}`}
+                                                        className={`w-1.5 h-1.5 rounded-full ${getStatusColor(event.status, event.type)}`}
                                                         title={event.title}
                                                     />
                                                 ))}
@@ -288,7 +438,7 @@ const ScheduleCalendar: React.FC<ScheduleCalendarProps> = ({ onEventClick, class
                                         </div>
                                         <Badge
                                             status={event.status as 'OPEN' | 'FULL' | 'CLOSED'}
-                                            className="text-xs flex-shrink-0"
+                                            className="text-xs shrink-0"
                                         >
                                             {event.status}
                                         </Badge>
@@ -313,12 +463,15 @@ const ScheduleCalendar: React.FC<ScheduleCalendarProps> = ({ onEventClick, class
             )}
 
             {/* Legend */}
-            <div className="px-4 py-3 border-t border-slate-100 flex items-center justify-center gap-4 text-xs text-slate-500">
+            <div className="px-4 py-3 border-t border-slate-100 flex flex-wrap items-center justify-center gap-4 text-xs text-slate-500">
                 <span className="flex items-center gap-1">
-                    <div className="w-2 h-2 rounded-full bg-emerald-500" /> Đang mở
+                    <div className="w-2 h-2 rounded-full bg-emerald-500" /> Cuộc thi đang mở
                 </span>
                 <span className="flex items-center gap-1">
                     <div className="w-2 h-2 rounded-full bg-amber-500" /> Sắp diễn ra
+                </span>
+                <span className="flex items-center gap-1">
+                    <div className="w-2 h-2 rounded-full bg-blue-500" /> Khóa học
                 </span>
                 <span className="flex items-center gap-1">
                     <div className="w-2 h-2 rounded-full bg-slate-400" /> Đã kết thúc

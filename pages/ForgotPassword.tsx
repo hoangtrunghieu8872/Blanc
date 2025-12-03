@@ -248,6 +248,7 @@ const ForgotPassword: React.FC = () => {
                                     setNewPassword(e.target.value);
                                     setError(null);
                                 }}
+                                autoComplete="new-password"
                                 required
                             />
 
@@ -261,6 +262,7 @@ const ForgotPassword: React.FC = () => {
                                     setConfirmPassword(e.target.value);
                                     setError(null);
                                 }}
+                                autoComplete="new-password"
                                 required
                             />
 

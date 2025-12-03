@@ -3,7 +3,7 @@ import { config } from 'dotenv';
 
 config(); // Load .env file
 
-const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/contesthub';
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/blanc';
 
 async function listUsers() {
     const client = new MongoClient(MONGODB_URI);

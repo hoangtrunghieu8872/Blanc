@@ -21,8 +21,8 @@ const SETTINGS_COLLECTION = 'platform_settings';
 const DEFAULT_SETTINGS = {
     _id: 'platform_config',
     general: {
-        siteName: 'ContestHub',
-        supportEmail: 'support@contesthub.com',
+        siteName: 'Blanc',
+        supportEmail: 'support@blanc.com',
         maintenanceMode: false,
         defaultLanguage: 'vi',
         timezone: 'Asia/Ho_Chi_Minh',
@@ -77,7 +77,7 @@ router.get('/status', async (_req, res, next) => {
 
         res.json({
             maintenanceMode: settings.general?.maintenanceMode || false,
-            siteName: settings.general?.siteName || 'ContestHub',
+            siteName: settings.general?.siteName || 'Blanc',
         });
     } catch (error) {
         next(error);
@@ -355,9 +355,9 @@ router.post('/email/test', authGuard, async (req, res, next) => {
 
         await sendSystemNotification({
             to: email,
-            title: 'Test Email từ ContestHub Admin',
+            title: 'Test Email từ Blanc Admin',
             message: `
-                <p>Đây là email thử nghiệm từ hệ thống quản trị ContestHub.</p>
+                <p>Đây là email thử nghiệm từ hệ thống quản trị Blanc.</p>
                 <p>Nếu bạn nhận được email này, nghĩa là hệ thống email đang hoạt động bình thường.</p>
                 <p><strong>Thời gian gửi:</strong> ${new Date().toLocaleString('vi-VN')}</p>
             `,
@@ -1296,7 +1296,7 @@ router.post('/notifications/seed', authGuard, async (req, res, next) => {
             },
             {
                 title: 'User Milestone Reached',
-                message: 'Congratulations! ContestHub has reached 1,000 active students!',
+                message: 'Congratulations! Blanc has reached 1,000 active students!',
                 type: 'success',
                 category: 'system',
                 read: true,

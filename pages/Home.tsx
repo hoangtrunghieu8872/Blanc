@@ -3,6 +3,7 @@ import { Search, ArrowRight, Users, Trophy, BookOpen, Star, Calendar, Loader2, X
 import { Button, Card, Badge } from '../components/ui/Common';
 import { useNavigate } from 'react-router-dom';
 import { useSearch, useStats, useContests, useCourses } from '../lib/hooks';
+import OptimizedImage from '../components/OptimizedImage';
 
 const Home: React.FC = () => {
   const navigate = useNavigate();
@@ -61,10 +62,10 @@ const Home: React.FC = () => {
 
       {/* Hero Section */}
       <section className="relative bg-white pt-20 pb-24 px-4 sm:px-6 lg:px-8 overflow-hidden">
-        <div className="absolute top-0 left-1/2 w-full -translate-x-1/2 h-full bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-primary-50 via-white to-white pointer-events-none" />
+        <div className="absolute top-0 left-1/2 w-full -translate-x-1/2 h-full bg-[radial-gradient(ellipse_at_top,var(--tw-gradient-stops))] from-primary-50 via-white to-white pointer-events-none" />
         <div className="max-w-7xl mx-auto relative z-10 text-center">
           <Badge className="mb-6 bg-primary-50 text-primary-700 border-primary-100 px-4 py-1.5 text-sm">
-            🚀 Nền tảng thi đấu số 1 cho sinh viên
+            🚀 Nền tảng thi đấu số 1 cho học sinh
           </Badge>
           <h1 className="text-4xl md:text-6xl font-extrabold text-slate-900 tracking-tight mb-6">
             Khám phá tiềm năng <br className="hidden md:block" />
@@ -132,7 +133,7 @@ const Home: React.FC = () => {
                                 <div className="font-medium text-slate-900 truncate">{item.title}</div>
                                 <div className="text-xs text-slate-500">{item.organizer}</div>
                               </div>
-                              <Badge status={item.status} className="flex-shrink-0">{item.status}</Badge>
+                              <Badge status={item.status} className="shrink-0">{item.status}</Badge>
                             </div>
                           ))}
                         </div>
@@ -246,10 +247,11 @@ const Home: React.FC = () => {
             contests.map((contest) => (
               <Card key={contest.id} className="group cursor-pointer" onClick={() => navigate(`/contests/${contest.id}`)}>
                 <div className="relative h-48 overflow-hidden">
-                  <img
+                  <OptimizedImage
                     src={contest.image || `https://picsum.photos/seed/${contest.id}/600/400`}
                     alt={contest.title}
-                    className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+                    className="w-full h-full transition-transform duration-500 group-hover:scale-105"
+                    lazy={true}
                   />
                   <div className="absolute top-3 left-3">
                     <Badge status={contest.status}>{contest.status}</Badge>
@@ -320,10 +322,11 @@ const Home: React.FC = () => {
               courses.map((course) => (
                 <Card key={course.id} className="group cursor-pointer border-0 shadow-none hover:shadow-lg" onClick={() => navigate(`/courses/${course.id}`)}>
                   <div className="aspect-video overflow-hidden rounded-t-xl bg-slate-200">
-                    <img
+                    <OptimizedImage
                       src={course.image || `https://picsum.photos/seed/${course.id}/400/250`}
                       alt={course.title}
-                      className="w-full h-full object-cover"
+                      className="w-full h-full"
+                      lazy={true}
                     />
                   </div>
                   <div className="p-4">

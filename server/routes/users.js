@@ -184,6 +184,205 @@ function sanitizeConsents(consents = {}) {
 // ============ ROUTES ============
 
 /**
+ * GET /api/users/:id/profile
+ * Get public profile of a user (respects privacy settings)
+ * Can be accessed by authenticated users
+ */
+router.get('/:id/profile', authGuard, async (req, res, next) => {
+    try {
+        await connectToDatabase();
+        const { id: targetUserId } = req.params;
+        const currentUserId = req.user.id;
+
+        if (!ObjectId.isValid(targetUserId)) {
+            return res.status(400).json({ error: 'Invalid user ID' });
+        }
+
+        const users = getCollection('users');
+        const user = await users.findOne(
+            { _id: new ObjectId(targetUserId) },
+            {
+                projection: {
+                    password: 0,
+                    resetPasswordToken: 0,
+                    resetPasswordExpiry: 0,
+                }
+            }
+        );
+
+        if (!user) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+
+        const isOwnProfile = targetUserId === currentUserId;
+        const privacy = user.privacy || {
+            showProfile: true,
+            showActivity: true,
+            showAchievements: true,
+        };
+
+        // If profile is completely hidden and not own profile
+        if (!isOwnProfile && !privacy.showProfile) {
+            return res.json({
+                id: user._id.toString(),
+                name: user.name || 'Ẩn danh',
+                avatar: null,
+                isPrivate: true,
+                message: 'Người dùng này đã ẩn hồ sơ của họ'
+            });
+        }
+
+        // Get user's streak data
+        let streakData = null;
+        if (isOwnProfile || privacy.showAchievements) {
+            const streakCollection = getCollection('user_streaks');
+            const streak = await streakCollection.findOne({ userId: targetUserId });
+            if (streak) {
+                streakData = {
+                    currentStreak: streak.currentStreak || 0,
+                    longestStreak: streak.longestStreak || 0,
+                };
+            }
+        }
+
+        // Get user's registrations (activities)
+        let activities = [];
+        if (isOwnProfile || privacy.showActivity) {
+            const registrations = getCollection('registrations');
+            const contests = getCollection('contests');
+
+            const userRegistrations = await registrations
+                .find({ userId: targetUserId })
+                .sort({ registeredAt: -1 })
+                .limit(10)
+                .toArray();
+
+            if (userRegistrations.length > 0) {
+                const contestIds = userRegistrations
+                    .map(r => ObjectId.isValid(r.contestId) ? new ObjectId(r.contestId) : null)
+                    .filter(Boolean);
+
+                const contestDocs = await contests
+                    .find({ _id: { $in: contestIds } })
+                    .toArray();
+
+                const contestMap = new Map(contestDocs.map(c => [c._id.toString(), c]));
+
+                activities = userRegistrations.map(r => {
+                    const contest = contestMap.get(r.contestId);
+                    return {
+                        type: 'contest_registration',
+                        title: contest?.title || 'Cuộc thi',
+                        date: r.registeredAt,
+                        status: r.status,
+                    };
+                });
+            }
+        }
+
+        // Get user's course enrollments
+        let enrollments = [];
+        if (isOwnProfile || privacy.showActivity) {
+            const courseEnrollments = getCollection('course_enrollments');
+            const courses = getCollection('courses');
+
+            const userEnrollments = await courseEnrollments
+                .find({ userId: targetUserId })
+                .sort({ enrolledAt: -1 })
+                .limit(5)
+                .toArray();
+
+            if (userEnrollments.length > 0) {
+                const courseIds = userEnrollments
+                    .map(e => ObjectId.isValid(e.courseId) ? new ObjectId(e.courseId) : null)
+                    .filter(Boolean);
+
+                const courseDocs = await courses
+                    .find({ _id: { $in: courseIds } })
+                    .toArray();
+
+                const courseMap = new Map(courseDocs.map(c => [c._id.toString(), c]));
+
+                enrollments = userEnrollments.map(e => {
+                    const course = courseMap.get(e.courseId);
+                    return {
+                        title: course?.title || 'Khóa học',
+                        progress: e.progress || 0,
+                        status: e.status,
+                        enrolledAt: e.enrolledAt,
+                    };
+                });
+            }
+        }
+
+        // Get achievements/stats
+        let achievements = null;
+        if (isOwnProfile || privacy.showAchievements) {
+            const registrations = getCollection('registrations');
+            const courseEnrollments = getCollection('course_enrollments');
+
+            const [totalContests, completedCourses] = await Promise.all([
+                registrations.countDocuments({ userId: targetUserId }),
+                courseEnrollments.countDocuments({ userId: targetUserId, status: 'completed' })
+            ]);
+
+            achievements = {
+                totalContests,
+                completedCourses,
+                contestAchievements: user.contestPreferences?.achievements || '',
+                portfolioLinks: user.contestPreferences?.portfolioLinks || [],
+            };
+        }
+
+        // Build response based on privacy settings
+        const response = {
+            id: user._id.toString(),
+            name: user.name || 'Ẩn danh',
+            email: isOwnProfile ? user.email : undefined, // Only show email to self
+            avatar: user.avatar || null,
+            bio: user.bio || '',
+            isOwnProfile,
+            privacy: isOwnProfile ? privacy : undefined, // Only show privacy settings to self
+            createdAt: user.createdAt,
+
+            // Matching profile (public info)
+            matchingProfile: (isOwnProfile || privacy.showProfile) ? {
+                primaryRole: user.matchingProfile?.primaryRole || '',
+                secondaryRoles: user.matchingProfile?.secondaryRoles || [],
+                experienceLevel: user.matchingProfile?.experienceLevel || '',
+                location: user.matchingProfile?.location || '',
+                skills: user.matchingProfile?.skills || [],
+                techStack: user.matchingProfile?.techStack || [],
+                languages: user.matchingProfile?.languages || [],
+                openToNewTeams: user.matchingProfile?.openToNewTeams,
+                openToMentor: user.matchingProfile?.openToMentor,
+            } : null,
+
+            // Contest preferences
+            contestPreferences: (isOwnProfile || privacy.showProfile) ? {
+                contestInterests: user.contestPreferences?.contestInterests || [],
+                preferredTeamRole: user.contestPreferences?.preferredTeamRole || '',
+                preferredTeamSize: user.contestPreferences?.preferredTeamSize || '',
+            } : null,
+
+            // Streak data
+            streak: streakData,
+
+            // Activities (if allowed)
+            activities: (isOwnProfile || privacy.showActivity) ? activities : null,
+            enrollments: (isOwnProfile || privacy.showActivity) ? enrollments : null,
+
+            // Achievements (if allowed)
+            achievements: (isOwnProfile || privacy.showAchievements) ? achievements : null,
+        };
+
+        res.json(response);
+    } catch (error) {
+        next(error);
+    }
+});
+
+/**
  * GET /api/users/search
  * Search users by name or email for tagging/inviting
  * Protected route - requires authentication
@@ -709,5 +908,282 @@ function getNotificationMessage(notification) {
             return 'Bạn có thông báo mới';
     }
 }
+
+// ============ STREAK ENDPOINTS ============
+
+/**
+ * Helper: Get start of day in UTC+7 (Vietnam timezone)
+ */
+function getVietnamStartOfDay(date = new Date()) {
+    // Vietnam is UTC+7
+    const vietnamOffset = 7 * 60 * 60 * 1000;
+    const utcTime = date.getTime() + (date.getTimezoneOffset() * 60 * 1000);
+    const vietnamTime = new Date(utcTime + vietnamOffset);
+
+    // Get start of day in Vietnam
+    vietnamTime.setHours(0, 0, 0, 0);
+
+    // Convert back to UTC for storage
+    return new Date(vietnamTime.getTime() - vietnamOffset);
+}
+
+/**
+ * Helper: Calculate streak from activity log
+ */
+function calculateStreak(activityDates, today) {
+    if (!activityDates || activityDates.length === 0) return 0;
+
+    // Sort dates descending (newest first)
+    const sortedDates = [...activityDates]
+        .map(d => new Date(d).getTime())
+        .sort((a, b) => b - a);
+
+    const todayStart = getVietnamStartOfDay(today).getTime();
+    const yesterdayStart = todayStart - 24 * 60 * 60 * 1000;
+
+    // Check if user was active today or yesterday
+    const lastActivityDay = getVietnamStartOfDay(new Date(sortedDates[0])).getTime();
+
+    // If last activity was before yesterday, streak is broken
+    if (lastActivityDay < yesterdayStart) {
+        return 0;
+    }
+
+    // Count consecutive days
+    let streak = 0;
+    let expectedDay = lastActivityDay;
+    const oneDayMs = 24 * 60 * 60 * 1000;
+
+    const uniqueDays = new Set(
+        sortedDates.map(d => getVietnamStartOfDay(new Date(d)).getTime())
+    );
+
+    for (const dayTime of [...uniqueDays].sort((a, b) => b - a)) {
+        if (dayTime === expectedDay) {
+            streak++;
+            expectedDay -= oneDayMs;
+        } else if (dayTime < expectedDay) {
+            // Gap found, streak ends
+            break;
+        }
+    }
+
+    return streak;
+}
+
+/**
+ * GET /api/users/streak
+ * Get current user's learning streak
+ */
+router.get('/streak', authGuard, async (req, res, next) => {
+    try {
+        await connectToDatabase();
+
+        const userId = req.user.id;
+        const streakCollection = getCollection('user_streaks');
+
+        const streakData = await streakCollection.findOne({ userId });
+
+        if (!streakData) {
+            return res.json({
+                currentStreak: 0,
+                longestStreak: 0,
+                lastActivityDate: null,
+                todayCheckedIn: false
+            });
+        }
+
+        const today = getVietnamStartOfDay();
+        const lastActivity = streakData.lastActivityDate
+            ? getVietnamStartOfDay(new Date(streakData.lastActivityDate))
+            : null;
+
+        // Check if streak is still valid
+        const yesterdayStart = new Date(today.getTime() - 24 * 60 * 60 * 1000);
+        let currentStreak = streakData.currentStreak || 0;
+
+        // If last activity was before yesterday, streak is broken
+        if (lastActivity && lastActivity < yesterdayStart) {
+            currentStreak = 0;
+            // Update in database
+            await streakCollection.updateOne(
+                { userId },
+                { $set: { currentStreak: 0 } }
+            );
+        }
+
+        const todayCheckedIn = lastActivity && lastActivity.getTime() === today.getTime();
+
+        res.json({
+            currentStreak,
+            longestStreak: streakData.longestStreak || 0,
+            lastActivityDate: streakData.lastActivityDate,
+            todayCheckedIn,
+            activityHistory: streakData.activityDates?.slice(-30) || [] // Last 30 days
+        });
+    } catch (error) {
+        next(error);
+    }
+});
+
+/**
+ * POST /api/users/streak/checkin
+ * Record daily activity (called on login/app visit)
+ */
+router.post('/streak/checkin', authGuard, async (req, res, next) => {
+    try {
+        await connectToDatabase();
+
+        const userId = req.user.id;
+        const streakCollection = getCollection('user_streaks');
+
+        const today = getVietnamStartOfDay();
+        const now = new Date();
+
+        // Get existing streak data
+        let streakData = await streakCollection.findOne({ userId });
+
+        if (!streakData) {
+            // First check-in ever
+            streakData = {
+                userId,
+                currentStreak: 1,
+                longestStreak: 1,
+                lastActivityDate: now,
+                activityDates: [now],
+                createdAt: now,
+                updatedAt: now
+            };
+
+            await streakCollection.insertOne(streakData);
+
+            return res.json({
+                currentStreak: 1,
+                longestStreak: 1,
+                todayCheckedIn: true,
+                isNewStreak: true,
+                message: 'Chào mừng! Bạn đã bắt đầu chuỗi học tập.'
+            });
+        }
+
+        const lastActivity = streakData.lastActivityDate
+            ? getVietnamStartOfDay(new Date(streakData.lastActivityDate))
+            : null;
+
+        // Already checked in today
+        if (lastActivity && lastActivity.getTime() === today.getTime()) {
+            return res.json({
+                currentStreak: streakData.currentStreak,
+                longestStreak: streakData.longestStreak,
+                todayCheckedIn: true,
+                isNewStreak: false,
+                message: 'Bạn đã điểm danh hôm nay.'
+            });
+        }
+
+        const yesterdayStart = new Date(today.getTime() - 24 * 60 * 60 * 1000);
+        let newStreak;
+        let message;
+
+        if (lastActivity && lastActivity.getTime() === yesterdayStart.getTime()) {
+            // Consecutive day - increment streak
+            newStreak = (streakData.currentStreak || 0) + 1;
+            message = `Tuyệt vời! Chuỗi ${newStreak} ngày liên tiếp! 🔥`;
+        } else {
+            // Streak broken or first activity
+            newStreak = 1;
+            if (streakData.currentStreak > 1) {
+                message = `Chuỗi đã bị gián đoạn. Hãy bắt đầu lại! 💪`;
+            } else {
+                message = 'Chào mừng trở lại! Hãy duy trì học tập mỗi ngày.';
+            }
+        }
+
+        const newLongest = Math.max(streakData.longestStreak || 0, newStreak);
+
+        // Keep only last 90 days of activity
+        const activityDates = streakData.activityDates || [];
+        activityDates.push(now);
+        const ninetyDaysAgo = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+        const trimmedDates = activityDates.filter(d => new Date(d) >= ninetyDaysAgo);
+
+        await streakCollection.updateOne(
+            { userId },
+            {
+                $set: {
+                    currentStreak: newStreak,
+                    longestStreak: newLongest,
+                    lastActivityDate: now,
+                    activityDates: trimmedDates,
+                    updatedAt: now
+                }
+            }
+        );
+
+        res.json({
+            currentStreak: newStreak,
+            longestStreak: newLongest,
+            todayCheckedIn: true,
+            isNewStreak: newStreak === 1 && (streakData.currentStreak || 0) > 1,
+            message
+        });
+    } catch (error) {
+        next(error);
+    }
+});
+
+/**
+ * GET /api/users/streak/leaderboard
+ * Get streak leaderboard (top users by current streak)
+ */
+router.get('/streak/leaderboard', authGuard, async (req, res, next) => {
+    try {
+        await connectToDatabase();
+
+        const limit = Math.min(parseInt(req.query.limit) || 10, 50);
+        const streakCollection = getCollection('user_streaks');
+        const usersCollection = getCollection('users');
+
+        // Get top streaks
+        const topStreaks = await streakCollection
+            .find({ currentStreak: { $gt: 0 } })
+            .sort({ currentStreak: -1, longestStreak: -1 })
+            .limit(limit)
+            .toArray();
+
+        if (topStreaks.length === 0) {
+            return res.json({ leaderboard: [] });
+        }
+
+        // Get user info
+        const userIds = topStreaks.map(s => new ObjectId(s.userId));
+        const users = await usersCollection
+            .find(
+                { _id: { $in: userIds } },
+                { projection: { name: 1, avatar: 1, privacy: 1 } }
+            )
+            .toArray();
+
+        const userMap = new Map(users.map(u => [u._id.toString(), u]));
+
+        const leaderboard = topStreaks.map((streak, index) => {
+            const user = userMap.get(streak.userId);
+            const showProfile = user?.privacy?.showProfile !== false;
+
+            return {
+                rank: index + 1,
+                userId: streak.userId,
+                name: showProfile ? (user?.name || 'Ẩn danh') : 'Ẩn danh',
+                avatar: showProfile ? user?.avatar : null,
+                currentStreak: streak.currentStreak,
+                longestStreak: streak.longestStreak
+            };
+        });
+
+        res.json({ leaderboard });
+    } catch (error) {
+        next(error);
+    }
+});
 
 export default router;

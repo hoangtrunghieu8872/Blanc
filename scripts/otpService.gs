@@ -1,5 +1,5 @@
 /**
- * ContestHub OTP Email Service (Hardened)
+ * Blanc OTP Email Service (Hardened)
  * 
  * Security features:
  * - HMAC-signed requests (OTP_SECRET_KEY in Script Properties)
@@ -10,10 +10,10 @@
  */
 
 const CONFIG = Object.freeze({
-  APP_NAME: 'ContestHub',
-  SENDER_NAME: 'ContestHub Security',
-  SUPPORT_EMAIL: 'support@contesthub.com',
-  LOGO_URL: 'https://via.placeholder.com/120x40/10B981/FFFFFF?text=ContestHub',
+  APP_NAME: 'Blanc',
+  SENDER_NAME: 'Blanc Security',
+  SUPPORT_EMAIL: 'support@blanc.com',
+  LOGO_URL: 'https://via.placeholder.com/120x40/10B981/FFFFFF?text=Blanc',
   PRIMARY_COLOR: '#10B981',
   SECONDARY_COLOR: '#059669',
   // Security / rate limit
@@ -123,7 +123,7 @@ function doGet(e) {
   return createResponse(
     {
       ok: true,
-      service: 'ContestHub OTP Service',
+      service: 'Blanc OTP Service',
       timestamp: new Date().toISOString()
     },
     200
@@ -279,18 +279,27 @@ function isValidEmail(email) {
 
 /**
  * Derive a 6-digit OTP from an opaque token using HMAC-SHA256.
- * Backend must use the same algorithm to verify.
+ * This MUST match the algorithm in server/routes/otp.js:
+ *   - HMAC-SHA256 of sessionToken with secretKey
+ *   - Take first 4 bytes as unsigned 32-bit big-endian integer
+ *   - Modulo 1,000,000 and pad to 6 digits
  */
 function deriveOtpFromToken(otpToken, secretKey) {
   const hmacBytes = Utilities.computeHmacSha256Signature(otpToken, secretKey);
-  // Dynamic truncation (TOTP-style)
-  const offset = hmacBytes[hmacBytes.length - 1] & 0x0f;
-  const binary =
-    ((hmacBytes[offset] & 0x7f) << 24) |
-    ((hmacBytes[offset + 1] & 0xff) << 16) |
-    ((hmacBytes[offset + 2] & 0xff) << 8) |
-    (hmacBytes[offset + 3] & 0xff);
-  const otp = binary % 1000000;
+  
+  // Take first 4 bytes and convert to unsigned 32-bit big-endian integer
+  // Same as Node.js: hash.readUInt32BE(0)
+  const num = 
+    ((hmacBytes[0] & 0xff) << 24) |
+    ((hmacBytes[1] & 0xff) << 16) |
+    ((hmacBytes[2] & 0xff) << 8) |
+    (hmacBytes[3] & 0xff);
+  
+  // Convert to unsigned (JavaScript handles signed 32-bit)
+  const unsignedNum = num >>> 0;
+  
+  // Modulo 1,000,000 and pad to 6 digits
+  const otp = unsignedNum % 1000000;
   return ('000000' + otp).slice(-6);
 }
 
@@ -644,7 +653,7 @@ function testSendOtp() {
     actionType: 'reset_password',
     actionText: 'đặt lại mật khẩu',
     ttlMinutes: 2,
-    appName: 'ContestHub (DEV)'
+    appName: 'Blanc (DEV)'
   });
   Logger.log(result.getContent());
 }

@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * CONTESTHUB TEAMMATE MATCHING ENGINE
+ * BLANC TEAMMATE MATCHING ENGINE
  * ============================================================================
  * 
  * Comprehensive matching algorithm for finding diverse, compatible teammates.

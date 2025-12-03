@@ -143,8 +143,8 @@ Users can control their notification preferences in Settings > Notifications:
 - Marketing emails
 
 ## Seed/Migrate data to MongoDB
-1. Ensure `.env` has `MONGODB_URI` (example: `mongodb+srv://<user>:<password>@cluster0.rfqxqob.mongodb.net/contesthub`).
+1. Ensure `.env` has `MONGODB_URI` (example: `mongodb+srv://<user>:<password>@cluster0.rfqxqob.mongodb.net/blanc`).
 2. Run migration to insert/update sample users, contests, and courses:
    `npm run seed`
-   - Creates default admin `admin@contesthub.dev` (password `Admin123!`) and student `student@contesthub.dev` (password `Student123!`).
+   - Creates default admin `admin@blanc.dev` (password `Admin123!`) and student `student@blanc.dev` (password `Student123!`).
    - Upserts demo contests and courses with timestamps so the frontend can be wired to the API easily.

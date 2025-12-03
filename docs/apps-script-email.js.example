@@ -1,5 +1,5 @@
 /**
- * Google Apps Script - Email Service for ContestHub
+ * Google Apps Script - Email Service for Blanc
  * 
  * Hướng dẫn cài đặt:
  * 1. Vào https://script.google.com
@@ -59,7 +59,7 @@ function handleSendOtp(data) {
     const htmlBody = `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
             <div style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); padding: 30px; text-align: center;">
-                <h1 style="color: white; margin: 0;">${appName || 'ContestHub'}</h1>
+                <h1 style="color: white; margin: 0;">${appName || 'Blanc'}</h1>
             </div>
             <div style="padding: 40px 30px; background: #f9fafb;">
                 <h2 style="color: #111827; margin-top: 0;">Xác thực đăng nhập</h2>
@@ -70,14 +70,14 @@ function handleSendOtp(data) {
                 <p style="color: #6b7280; font-size: 14px;">Mã này có hiệu lực trong 5 phút.</p>
             </div>
             <div style="padding: 20px; background: #1f2937; text-align: center;">
-                <p style="color: #9ca3af; margin: 0; font-size: 12px;">© ${new Date().getFullYear()} ${appName || 'ContestHub'}</p>
+                <p style="color: #9ca3af; margin: 0; font-size: 12px;">© ${new Date().getFullYear()} ${appName || 'Blanc'}</p>
             </div>
         </div>
     `;
     
     GmailApp.sendEmail(email, `[${appName}] Mã xác thực đăng nhập`, '', {
         htmlBody: htmlBody,
-        name: appName || 'ContestHub'
+        name: appName || 'Blanc'
     });
     
     return createJsonResponse({ ok: true, message: 'OTP sent' });
@@ -94,7 +94,7 @@ function handleSendEmail(data) {
     
     GmailApp.sendEmail(email, subject, '', {
         htmlBody: body,
-        name: appName || 'ContestHub'
+        name: appName || 'Blanc'
     });
     
     return createJsonResponse({ ok: true, message: 'Email sent', type: type });
@@ -140,7 +140,7 @@ function createJsonResponse(data, statusCode = 200) {
 function doGet(e) {
     return createJsonResponse({
         ok: true,
-        message: 'ContestHub Email Service is running',
+        message: 'Blanc Email Service is running',
         supportedActions: ['sendOtp', 'sendEmail'],
         version: '2.0.0'
     });

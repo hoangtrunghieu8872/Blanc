@@ -1,10 +1,10 @@
-# Test script for ContestHub API
+# Test script for Blanc API
 # Usage: .\test-api.ps1
 
 $baseUrl = "http://localhost:4000/api"
 
 Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "ContestHub API Test Script" -ForegroundColor Cyan
+Write-Host "Blanc API Test Script" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 
 # Test 1: Health Check
@@ -14,7 +14,8 @@ try {
     Write-Host "✓ Health Check: OK" -ForegroundColor Green
     Write-Host "  Status: $($health.status)"
     Write-Host "  MongoDB: $($health.mongodb)"
-} catch {
+}
+catch {
     Write-Host "✗ Health Check Failed: $($_.Exception.Message)" -ForegroundColor Red
 }
 
@@ -28,10 +29,12 @@ try {
     $chat = Invoke-RestMethod -Uri "$baseUrl/chat" -Method POST -Body $chatBody -ContentType "application/json"
     Write-Host "✓ Chat Response received" -ForegroundColor Green
     Write-Host "  Response: $($chat.reply.Substring(0, [Math]::Min(100, $chat.reply.Length)))..."
-} catch {
+}
+catch {
     if ($_.Exception.Response.StatusCode -eq 401) {
         Write-Host "✓ Chat API correctly requires authentication (401)" -ForegroundColor Green
-    } else {
+    }
+    else {
         Write-Host "✗ Chat API Error: $($_.Exception.Message)" -ForegroundColor Red
     }
 }
@@ -41,10 +44,12 @@ Write-Host "`n[3] Testing Matching API (without auth)..." -ForegroundColor Yello
 try {
     $matching = Invoke-RestMethod -Uri "$baseUrl/matching/recommendations" -Method GET
     Write-Host "✓ Matching Response received" -ForegroundColor Green
-} catch {
+}
+catch {
     if ($_.Exception.Response.StatusCode -eq 401) {
         Write-Host "✓ Matching API correctly requires authentication (401)" -ForegroundColor Green
-    } else {
+    }
+    else {
         Write-Host "✗ Matching API Error: $($_.Exception.Message)" -ForegroundColor Red
     }
 }
@@ -55,14 +60,15 @@ $token = $null
 try {
     # You need to replace with actual test credentials
     $loginBody = @{
-        email = "test@example.com"
+        email    = "test@example.com"
         password = "testpassword123"
     } | ConvertTo-Json
     
     $login = Invoke-RestMethod -Uri "$baseUrl/auth/login" -Method POST -Body $loginBody -ContentType "application/json"
     $token = $login.token
     Write-Host "✓ Login successful, token received" -ForegroundColor Green
-} catch {
+}
+catch {
     Write-Host "⚠ Login failed (expected if test user doesn't exist): $($_.Exception.Message)" -ForegroundColor Yellow
     Write-Host "  Skipping authenticated tests..." -ForegroundColor Yellow
 }
@@ -83,7 +89,8 @@ if ($token) {
         $chat = Invoke-RestMethod -Uri "$baseUrl/chat" -Method POST -Body $chatBody -ContentType "application/json" -Headers $headers
         Write-Host "✓ Chat Response:" -ForegroundColor Green
         Write-Host "  $($chat.reply.Substring(0, [Math]::Min(200, $chat.reply.Length)))..."
-    } catch {
+    }
+    catch {
         Write-Host "✗ Chat Error: $($_.Exception.Message)" -ForegroundColor Red
     }
     
@@ -97,7 +104,8 @@ if ($token) {
         foreach ($rec in $matching.recommendations) {
             Write-Host "  - $($rec.user.name): Score $($rec.matchScore)%" -ForegroundColor Cyan
         }
-    } catch {
+    }
+    catch {
         Write-Host "✗ Matching Error: $($_.Exception.Message)" -ForegroundColor Red
     }
 }

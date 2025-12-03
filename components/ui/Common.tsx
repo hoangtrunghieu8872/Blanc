@@ -101,7 +101,7 @@ export const Select: React.FC<SelectProps> = ({ label, error, className, childre
     <select
       className={cn(
         "flex h-10 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent disabled:cursor-not-allowed disabled:opacity-50 transition-all appearance-none cursor-pointer",
-        "bg-[url('data:image/svg+xml;charset=UTF-8,%3csvg%20xmlns%3d%22http%3a%2f%2fwww.w3.org%2f2000%2fsvg%22%20width%3d%2224%22%20height%3d%2224%22%20viewBox%3d%220%200%2024%2024%22%20fill%3d%22none%22%20stroke%3d%22%2364748b%22%20stroke-width%3d%222%22%20stroke-linecap%3d%22round%22%20stroke-linejoin%3d%22round%22%3e%3cpolyline%20points%3d%226%209%2012%2015%2018%209%22%3e%3c%2fpolyline%3e%3c%2fsvg%3e')] bg-[length:20px] bg-[right_8px_center] bg-no-repeat pr-10",
+        "bg-[url('data:image/svg+xml;charset=UTF-8,%3csvg%20xmlns%3d%22http%3a%2f%2fwww.w3.org%2f2000%2fsvg%22%20width%3d%2224%22%20height%3d%2224%22%20viewBox%3d%220%200%2024%2024%22%20fill%3d%22none%22%20stroke%3d%22%2364748b%22%20stroke-width%3d%222%22%20stroke-linecap%3d%22round%22%20stroke-linejoin%3d%22round%22%3e%3cpolyline%20points%3d%226%209%2012%2015%2018%209%22%3e%3c%2fpolyline%3e%3c%2fsvg%3e')] bg-size-[20px] bg-position-[right_8px_center] bg-no-repeat pr-10",
         error && "border-red-500 focus:ring-red-500",
         className
       )}
@@ -184,7 +184,7 @@ export const Dropdown: React.FC<DropdownProps> = ({
             {selectedOption ? selectedOption.label : placeholder}
           </span>
           <ChevronDown className={cn(
-            "w-4 h-4 text-slate-400 transition-transform flex-shrink-0",
+            "w-4 h-4 text-slate-400 transition-transform shrink-0",
             isOpen && "rotate-180"
           )} />
         </button>

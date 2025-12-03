@@ -1,9 +1,14 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
-import { Search, Filter, Calendar, MapPin, Tag, Share2, Award, Users, CheckCircle, Loader2, X } from 'lucide-react';
+import { Search, Filter, Calendar, MapPin, Tag, Share2, Award, Users, CheckCircle, Loader2, X, Clock, ChevronDown, ChevronUp, CalendarPlus, Copy, Check, Star } from 'lucide-react';
 import { Button, Input, Card, Badge, Tabs } from '../components/ui/Common';
-import { useContests, useDebounce } from '../lib/hooks';
+import { useContests, useDebounce, useUserRegistrations } from '../lib/hooks';
 import { Contest } from '../types';
+import OptimizedImage from '../components/OptimizedImage';
+import Pagination from '../components/Pagination';
+import Reviews from '../components/Reviews';
+import { api } from '../lib/api';
+import toast from 'react-hot-toast';
 
 // Helper functions
 const formatPrice = (price: number) => {
@@ -29,9 +34,14 @@ const STATUS_MAP: Record<string, string> = {
   'CLOSED': 'Đã kết thúc',
 };
 
-const TAG_CATEGORIES = ['UI/UX', 'Design', 'Coding', 'Marketing', 'Data', 'AI', 'IoT', 'Animation'];
+// Default fallback tags
+const DEFAULT_TAGS = ['UI/UX', 'Design', 'Coding', 'Marketing', 'Data', 'AI', 'IoT', 'Animation'];
+const VISIBLE_TAGS_COUNT = 5;
 
 // --- CONTEST LIST COMPONENT ---
+// Constants
+const ITEMS_PER_PAGE = 6;
+
 const ContestList: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -41,9 +51,42 @@ const ContestList: React.FC = () => {
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [selectedStatuses, setSelectedStatuses] = useState<string[]>([]);
   const [showFilters, setShowFilters] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+
+  // Tags from database
+  const [allTags, setAllTags] = useState<string[]>(DEFAULT_TAGS);
+  const [isLoadingTags, setIsLoadingTags] = useState(true);
+  const [showAllTags, setShowAllTags] = useState(false);
 
   // Debounced search
   const debouncedSearch = useDebounce(searchQuery, 300);
+
+  // Fetch tags from database
+  useEffect(() => {
+    const fetchTags = async () => {
+      try {
+        setIsLoadingTags(true);
+        const response = await api.get<{ tags: string[]; tagsWithCount: { tag: string; count: number }[] }>('/contests/tags');
+        if (response.tags && response.tags.length > 0) {
+          setAllTags(response.tags);
+        }
+      } catch (error) {
+        console.error('Failed to fetch tags:', error);
+        // Keep default tags on error
+      } finally {
+        setIsLoadingTags(false);
+      }
+    };
+    fetchTags();
+  }, []);
+
+  // Visible tags (first 5 or all)
+  const visibleTags = useMemo(() => {
+    if (showAllTags) return allTags;
+    return allTags.slice(0, VISIBLE_TAGS_COUNT);
+  }, [allTags, showAllTags]);
+
+  const hasMoreTags = allTags.length > VISIBLE_TAGS_COUNT;
 
   // Fetch contests
   const { contests, isLoading, error, refetch } = useContests({ limit: 50 });
@@ -77,6 +120,27 @@ const ContestList: React.FC = () => {
     return true;
   });
 
+  // Pagination logic
+  const totalPages = Math.ceil(filteredContests.length / ITEMS_PER_PAGE);
+
+  // Get paginated contests
+  const paginatedContests = useMemo(() => {
+    const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+    return filteredContests.slice(startIndex, startIndex + ITEMS_PER_PAGE);
+  }, [filteredContests, currentPage]);
+
+  // Reset to page 1 when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [debouncedSearch, selectedTags, selectedStatuses]);
+
+  // Reset to page 1 if current page exceeds total pages
+  useEffect(() => {
+    if (currentPage > totalPages && totalPages > 0) {
+      setCurrentPage(1);
+    }
+  }, [currentPage, totalPages]);
+
   const toggleTag = (tag: string) => {
     setSelectedTags(prev =>
       prev.includes(tag) ? prev.filter(t => t !== tag) : [...prev, tag]
@@ -93,6 +157,7 @@ const ContestList: React.FC = () => {
     setSearchQuery('');
     setSelectedTags([]);
     setSelectedStatuses([]);
+    setCurrentPage(1);
   };
 
   const hasActiveFilters = searchQuery || selectedTags.length > 0 || selectedStatuses.length > 0;
@@ -107,7 +172,7 @@ const ContestList: React.FC = () => {
           </p>
         </div>
         <div className="flex gap-2 w-full md:w-auto">
-          <div className="relative flex-grow md:w-64">
+          <div className="relative grow md:w-64">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
             <input
               type="text"
@@ -146,19 +211,44 @@ const ContestList: React.FC = () => {
         <aside className={`${showFilters ? 'block' : 'hidden'} lg:block space-y-6`}>
           <div>
             <h3 className="font-semibold text-slate-900 mb-3">Lĩnh vực</h3>
-            <div className="space-y-2">
-              {TAG_CATEGORIES.map(tag => (
-                <label key={tag} className="flex items-center space-x-2 text-sm text-slate-600 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={selectedTags.includes(tag)}
-                    onChange={() => toggleTag(tag)}
-                    className="rounded text-primary-600 focus:ring-primary-500"
-                  />
-                  <span>{tag}</span>
-                </label>
-              ))}
-            </div>
+            {isLoadingTags ? (
+              <div className="flex items-center gap-2 text-sm text-slate-500">
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span>Đang tải...</span>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {visibleTags.map(tag => (
+                  <label key={tag} className="flex items-center space-x-2 text-sm text-slate-600 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={selectedTags.includes(tag)}
+                      onChange={() => toggleTag(tag)}
+                      className="rounded text-primary-600 focus:ring-primary-500"
+                    />
+                    <span>{tag}</span>
+                  </label>
+                ))}
+                {hasMoreTags && (
+                  <button
+                    onClick={() => setShowAllTags(!showAllTags)}
+                    className="flex items-center gap-1 text-sm text-primary-600 hover:text-primary-700 font-medium mt-2 transition-colors"
+                  >
+                    {showAllTags ? (
+                      <>
+                        <ChevronUp className="w-4 h-4" />
+                        Thu gọn
+                      </>
+                    ) : (
+                      <>
+                        <ChevronDown className="w-4 h-4" />
+                        Xem thêm ({allTags.length - VISIBLE_TAGS_COUNT})
+                      </>
+                    )}
+                  </button>
+                )}
+              </div>
+            )}
           </div>
           <div className="pt-6 border-t border-slate-200">
             <h3 className="font-semibold text-slate-900 mb-3">Trạng thái</h3>
@@ -205,42 +295,54 @@ const ContestList: React.FC = () => {
               <Button onClick={refetch}>Thử lại</Button>
             </div>
           ) : filteredContests.length > 0 ? (
-            filteredContests.map((contest) => (
-              <Card
-                key={contest.id}
-                className="flex flex-col h-full cursor-pointer hover:border-primary-200"
-                onClick={() => navigate(`/contests/${contest.id}`)}
-              >
-                <div className="relative h-48 w-full bg-slate-200">
-                  <img
-                    src={contest.image || `https://picsum.photos/seed/${contest.id}/600/400`}
-                    alt={contest.title}
-                    className="w-full h-full object-cover"
-                  />
-                  <Badge className="absolute top-3 left-3" status={contest.status}>{contest.status}</Badge>
-                </div>
-                <div className="p-5 flex flex-col flex-grow">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-xs font-semibold text-primary-600 bg-primary-50 px-2 py-0.5 rounded">
-                      {contest.tags?.[0] || 'General'}
-                    </span>
-                    <span className="text-xs text-slate-400">{getRemainingDays(contest.deadline)}</span>
+            <>
+              {paginatedContests.map((contest) => (
+                <Card
+                  key={contest.id}
+                  className="flex flex-col h-full cursor-pointer hover:border-primary-200"
+                  onClick={() => navigate(`/contests/${contest.id}`)}
+                >
+                  <div className="relative h-48 w-full bg-slate-200">
+                    <OptimizedImage
+                      src={contest.image || `https://picsum.photos/seed/${contest.id}/600/400`}
+                      alt={contest.title}
+                      className="w-full h-full"
+                      lazy={true}
+                    />
+                    <Badge className="absolute top-3 left-3" status={contest.status}>{contest.status}</Badge>
                   </div>
-                  <h3 className="text-lg font-bold text-slate-900 mb-2 line-clamp-2">{contest.title}</h3>
-                  <p className="text-sm text-slate-500 mb-4 line-clamp-2 flex-grow">
-                    {contest.description || 'Tham gia để trải nghiệm và phát triển kỹ năng của bạn.'}
-                  </p>
-
-                  <div className="pt-4 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
-                    <div className="flex items-center gap-4">
-                      <div className="flex items-center"><Calendar className="w-3 h-3 mr-1" /> {formatDate(contest.dateStart)}</div>
-                      <div className="flex items-center"><Users className="w-3 h-3 mr-1" /> {contest.organizer}</div>
+                  <div className="p-5 flex flex-col grow">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs font-semibold text-primary-600 bg-primary-50 px-2 py-0.5 rounded">
+                        {contest.tags?.[0] || 'General'}
+                      </span>
+                      <span className="text-xs text-slate-400">{getRemainingDays(contest.deadline)}</span>
                     </div>
-                    <span className="font-medium text-slate-900">{formatPrice(contest.fee)}</span>
+                    <h3 className="text-lg font-bold text-slate-900 mb-2 line-clamp-2">{contest.title}</h3>
+                    <p className="text-sm text-slate-500 mb-4 line-clamp-2 grow">
+                      {contest.description || 'Tham gia để trải nghiệm và phát triển kỹ năng của bạn.'}
+                    </p>
+
+                    <div className="pt-4 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
+                      <div className="flex items-center gap-4">
+                        <div className="flex items-center"><Calendar className="w-3 h-3 mr-1" /> {formatDate(contest.dateStart)}</div>
+                        <div className="flex items-center"><Users className="w-3 h-3 mr-1" /> {contest.organizer}</div>
+                      </div>
+                      <span className="font-medium text-slate-900">{formatPrice(contest.fee)}</span>
+                    </div>
                   </div>
-                </div>
-              </Card>
-            ))
+                </Card>
+              ))}
+
+              {/* Pagination */}
+              <div className="md:col-span-2">
+                <Pagination
+                  currentPage={currentPage}
+                  totalPages={totalPages}
+                  onPageChange={setCurrentPage}
+                />
+              </div>
+            </>
           ) : (
             <div className="md:col-span-2 text-center py-12">
               <Search className="w-12 h-12 mx-auto mb-4 text-slate-300" />
@@ -260,22 +362,284 @@ const ContestList: React.FC = () => {
 // --- CONTEST DETAIL COMPONENT ---
 const ContestDetail: React.FC = () => {
   const { id } = useParams();
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('Tổng quan');
+  const [contest, setContest] = useState<Contest | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // Registration state
+  const [isRegistering, setIsRegistering] = useState(false);
+  const [isRegistered, setIsRegistered] = useState(false);
+  const [isCopied, setIsCopied] = useState(false);
+
+  // User registrations hook
+  const { registrations, registerForContest, cancelRegistration, refetch: refetchRegistrations } = useUserRegistrations({ autoFetch: true });
+
+  // Check if user is already registered
+  useEffect(() => {
+    if (id && registrations.length > 0) {
+      const registered = registrations.some(reg => reg.contestId === id);
+      setIsRegistered(registered);
+    }
+  }, [id, registrations]);
+
+  // Fetch contest details
+  useEffect(() => {
+    const fetchContest = async () => {
+      if (!id) return;
+      setIsLoading(true);
+      try {
+        const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:4000/api'}/contests/${id}`);
+        if (!response.ok) throw new Error('Contest not found');
+        const data = await response.json();
+        setContest(data.contest);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Không thể tải cuộc thi');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    fetchContest();
+  }, [id]);
+
+  // Generate iCal/ICS file for calendar
+  const generateICSFile = useCallback((contest: Contest) => {
+    const formatICSDate = (dateStr: string) => {
+      const date = new Date(dateStr);
+      return date.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+    };
+
+    const escapeICS = (str: string) => {
+      return str.replace(/[,;\\]/g, '\\$&').replace(/\n/g, '\\n');
+    };
+
+    const startDate = formatICSDate(contest.dateStart);
+    const endDate = contest.deadline ? formatICSDate(contest.deadline) : formatICSDate(contest.dateStart);
+    const now = formatICSDate(new Date().toISOString());
+
+    const icsContent = `BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//ContestHub//Contest Calendar//VI
+CALSCALE:GREGORIAN
+METHOD:PUBLISH
+BEGIN:VEVENT
+DTSTART:${startDate}
+DTEND:${endDate}
+DTSTAMP:${now}
+UID:contest-${contest.id}@contesthub.vn
+SUMMARY:${escapeICS(contest.title)}
+DESCRIPTION:${escapeICS(contest.description || 'Tham gia cuộc thi trên ContestHub')}\\n\\nBan tổ chức: ${escapeICS(contest.organizer)}\\nPhí tham gia: ${contest.fee === 0 ? 'Miễn phí' : contest.fee.toLocaleString('vi-VN') + 'đ'}
+LOCATION:${escapeICS(contest.location || 'Online')}
+STATUS:CONFIRMED
+ORGANIZER:CN=${escapeICS(contest.organizer)}
+URL:${window.location.href}
+BEGIN:VALARM
+TRIGGER:-P1D
+ACTION:DISPLAY
+DESCRIPTION:Nhắc nhở: ${escapeICS(contest.title)} sẽ bắt đầu vào ngày mai!
+END:VALARM
+BEGIN:VALARM
+TRIGGER:-PT1H
+ACTION:DISPLAY
+DESCRIPTION:Nhắc nhở: ${escapeICS(contest.title)} sẽ bắt đầu trong 1 giờ nữa!
+END:VALARM
+END:VEVENT
+END:VCALENDAR`;
+
+    return icsContent;
+  }, []);
+
+  // Download calendar file
+  const downloadCalendarFile = useCallback((contest: Contest) => {
+    const icsContent = generateICSFile(contest);
+    const blob = new Blob([icsContent], { type: 'text/calendar;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${contest.title.replace(/[^a-zA-Z0-9]/g, '_')}.ics`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }, [generateICSFile]);
+
+  // Handle registration
+  const handleRegister = async () => {
+    if (!id || !contest) return;
+
+    // Check if user is logged in
+    const token = localStorage.getItem('auth_token');
+    if (!token) {
+      toast.error('Vui lòng đăng nhập để đăng ký cuộc thi');
+      navigate('/auth?redirect=' + encodeURIComponent(window.location.pathname));
+      return;
+    }
+
+    setIsRegistering(true);
+    try {
+      const result = await registerForContest(id);
+      setIsRegistered(true);
+
+      // Show success message
+      toast.success(result.message || 'Đăng ký thành công!');
+
+      // Show warning if any
+      if (result.warning) {
+        toast(result.warning, { icon: '⚠️', duration: 5000 });
+      }
+
+      // Download calendar file automatically
+      downloadCalendarFile(contest);
+      toast.success('Đã thêm vào lịch của bạn!', { icon: '📅' });
+
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Đăng ký thất bại';
+      toast.error(errorMessage);
+    } finally {
+      setIsRegistering(false);
+    }
+  };
+
+  // Handle cancel registration
+  const handleCancelRegistration = async () => {
+    if (!id) return;
+
+    setIsRegistering(true);
+    try {
+      await cancelRegistration(id);
+      setIsRegistered(false);
+      toast.success('Đã hủy đăng ký');
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Hủy đăng ký thất bại';
+      toast.error(errorMessage);
+    } finally {
+      setIsRegistering(false);
+    }
+  };
+
+  // Handle share
+  const handleShare = async () => {
+    if (!contest) return;
+
+    const shareUrl = window.location.href;
+    const shareData = {
+      title: contest.title,
+      text: `Tham gia cuộc thi "${contest.title}" - Ban tổ chức: ${contest.organizer}`,
+      url: shareUrl,
+    };
+
+    // Try native Web Share API first
+    if (navigator.share && navigator.canShare && navigator.canShare(shareData)) {
+      try {
+        await navigator.share(shareData);
+        toast.success('Đã chia sẻ thành công!');
+      } catch (err) {
+        // User cancelled or share failed - fallback to copy
+        if ((err as Error).name !== 'AbortError') {
+          copyToClipboard(shareUrl);
+        }
+      }
+    } else {
+      // Fallback to clipboard copy
+      copyToClipboard(shareUrl);
+    }
+  };
+
+  // Copy URL to clipboard
+  const copyToClipboard = async (url: string) => {
+    try {
+      await navigator.clipboard.writeText(url);
+      setIsCopied(true);
+      toast.success('Đã sao chép liên kết!');
+      setTimeout(() => setIsCopied(false), 2000);
+    } catch (err) {
+      // Fallback for older browsers
+      const textArea = document.createElement('textarea');
+      textArea.value = url;
+      textArea.style.position = 'fixed';
+      textArea.style.left = '-999999px';
+      document.body.appendChild(textArea);
+      textArea.select();
+      try {
+        document.execCommand('copy');
+        setIsCopied(true);
+        toast.success('Đã sao chép liên kết!');
+        setTimeout(() => setIsCopied(false), 2000);
+      } catch (e) {
+        toast.error('Không thể sao chép liên kết');
+      }
+      document.body.removeChild(textArea);
+    }
+  };
+
+  const getLocationTypeLabel = (type?: string) => {
+    switch (type) {
+      case 'online': return 'Online';
+      case 'offline': return 'Offline';
+      case 'hybrid': return 'Hybrid';
+      default: return 'Online';
+    }
+  };
+
+  const getPrizeColor = (rank: number) => {
+    switch (rank) {
+      case 1: return 'bg-amber-50 border-amber-100';
+      case 2: return 'bg-slate-50 border-slate-200';
+      case 3: return 'bg-orange-50 border-orange-100';
+      default: return 'bg-slate-50 border-slate-200';
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <Loader2 className="w-8 h-8 animate-spin text-primary-600" />
+      </div>
+    );
+  }
+
+  if (error || !contest) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center">
+        <p className="text-red-500 mb-4">{error || 'Không tìm thấy cuộc thi'}</p>
+        <Button onClick={() => navigate('/contests')}>Quay lại</Button>
+      </div>
+    );
+  }
 
   return (
     <div className="bg-slate-50 min-h-screen pb-16">
       {/* Banner */}
       <div className="h-64 md:h-80 w-full relative bg-slate-900">
-        <img src={`https://picsum.photos/seed/c${id}/1200/600`} alt="Banner" className="w-full h-full object-cover opacity-60" />
-        <div className="absolute inset-0 bg-gradient-to-t from-slate-900/80 to-transparent" />
+        <OptimizedImage
+          src={contest.image || `https://picsum.photos/seed/c${id}/1200/600`}
+          alt={contest.title}
+          className="w-full h-full opacity-60"
+          lazy={false}
+        />
+        <div className="absolute inset-0 bg-linear-to-t from-slate-900/80 to-transparent" />
         <div className="absolute bottom-0 left-0 w-full p-6 md:p-10">
           <div className="max-w-7xl mx-auto">
-            <Badge className="mb-3 bg-white/20 text-white backdrop-blur-sm border-0">Design Challenge</Badge>
-            <h1 className="text-3xl md:text-4xl font-bold text-white mb-2">Cuộc thi Thiết kế UI/UX Sáng tạo 2024</h1>
+            {contest.category && (
+              <Badge className="mb-3 bg-white/20 text-white backdrop-blur-sm border-0 capitalize">
+                {contest.category}
+              </Badge>
+            )}
+            <h1 className="text-3xl md:text-4xl font-bold text-white mb-2">{contest.title}</h1>
             <div className="flex flex-wrap items-center gap-6 text-slate-200 text-sm">
-              <span className="flex items-center"><Calendar className="w-4 h-4 mr-2" /> 20/10/2024 - 20/11/2024</span>
-              <span className="flex items-center"><MapPin className="w-4 h-4 mr-2" /> Online</span>
-              <span className="flex items-center"><Users className="w-4 h-4 mr-2" /> Ban tổ chức: TechGen Z</span>
+              <span className="flex items-center">
+                <Calendar className="w-4 h-4 mr-2" />
+                {formatDate(contest.dateStart)} - {formatDate(contest.deadline)}
+              </span>
+              <span className="flex items-center">
+                <MapPin className="w-4 h-4 mr-2" />
+                {contest.location || getLocationTypeLabel(contest.locationType)}
+              </span>
+              <span className="flex items-center">
+                <Users className="w-4 h-4 mr-2" />
+                Ban tổ chức: {contest.organizer}
+              </span>
             </div>
           </div>
         </div>
@@ -287,7 +651,7 @@ const ContestDetail: React.FC = () => {
         <div className="lg:col-span-2">
           <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-6 min-h-[500px]">
             <Tabs
-              tabs={['Tổng quan', 'Giải thưởng', 'Thể lệ', 'Lịch trình']}
+              tabs={['Tổng quan', 'Giải thưởng', 'Thể lệ', 'Lịch trình', 'Đánh giá']}
               activeTab={activeTab}
               onChange={setActiveTab}
             />
@@ -295,34 +659,100 @@ const ContestDetail: React.FC = () => {
             <div className="prose prose-slate max-w-none">
               {activeTab === 'Tổng quan' && (
                 <div>
-                  <p className="lead text-lg text-slate-600 mb-4">Chào mừng bạn đến với cuộc thi thiết kế lớn nhất năm dành cho sinh viên.</p>
-                  <h3 className="text-xl font-bold text-slate-900 mb-2">Mục tiêu</h3>
-                  <p className="text-slate-600 mb-4">Khơi dậy niềm đam mê sáng tạo và cung cấp sân chơi chuyên nghiệp cho các bạn trẻ.</p>
-                  <h3 className="text-xl font-bold text-slate-900 mb-2">Đối tượng tham gia</h3>
-                  <ul className="list-disc list-inside text-slate-600 space-y-1 mb-4">
-                    <li>Sinh viên các trường đại học, cao đẳng.</li>
-                    <li>Yêu thích thiết kế giao diện và trải nghiệm người dùng.</li>
-                    <li>Có thể tham gia cá nhân hoặc đội nhóm (tối đa 3 người).</li>
-                  </ul>
+                  {contest.description && (
+                    <div className="mb-6">
+                      <p className="lead text-lg text-slate-600 whitespace-pre-wrap">{contest.description}</p>
+                    </div>
+                  )}
+
+                  {contest.objectives && (
+                    <>
+                      <h3 className="text-xl font-bold text-slate-900 mb-2">Mục tiêu</h3>
+                      <p className="text-slate-600 mb-4 whitespace-pre-wrap">{contest.objectives}</p>
+                    </>
+                  )}
+
+                  {contest.eligibility && (
+                    <>
+                      <h3 className="text-xl font-bold text-slate-900 mb-2">Đối tượng tham gia</h3>
+                      <p className="text-slate-600 mb-4 whitespace-pre-wrap">{contest.eligibility}</p>
+                    </>
+                  )}
+
+                  {!contest.description && !contest.objectives && !contest.eligibility && (
+                    <p className="text-slate-500 italic">Chưa có thông tin chi tiết về cuộc thi này.</p>
+                  )}
                 </div>
               )}
+
               {activeTab === 'Giải thưởng' && (
                 <div className="grid gap-4">
-                  <div className="bg-amber-50 border border-amber-100 p-4 rounded-lg flex items-center">
-                    <div className="bg-amber-100 p-3 rounded-full mr-4"><Award className="w-6 h-6 text-amber-600" /></div>
-                    <div>
-                      <div className="font-bold text-slate-900">Giải Nhất</div>
-                      <div className="text-slate-600">10.000.000 VNĐ + Cúp lưu niệm</div>
-                    </div>
-                  </div>
-                  <div className="bg-slate-50 border border-slate-200 p-4 rounded-lg flex items-center">
-                    <div className="bg-slate-200 p-3 rounded-full mr-4"><Award className="w-6 h-6 text-slate-600" /></div>
-                    <div>
-                      <div className="font-bold text-slate-900">Giải Nhì</div>
-                      <div className="text-slate-600">5.000.000 VNĐ</div>
-                    </div>
-                  </div>
+                  {contest.prizes && contest.prizes.length > 0 ? (
+                    contest.prizes.map((prize, index) => (
+                      <div key={index} className={`${getPrizeColor(prize.rank)} border p-4 rounded-lg flex items-center`}>
+                        <div className={`${prize.rank === 1 ? 'bg-amber-100' : 'bg-slate-200'} p-3 rounded-full mr-4`}>
+                          <Award className={`w-6 h-6 ${prize.rank === 1 ? 'text-amber-600' : 'text-slate-600'}`} />
+                        </div>
+                        <div>
+                          <div className="font-bold text-slate-900">{prize.title}</div>
+                          <div className="text-slate-600">{prize.value}</div>
+                          {prize.description && (
+                            <div className="text-sm text-slate-500 mt-1">{prize.description}</div>
+                          )}
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="text-slate-500 italic">Chưa có thông tin về giải thưởng.</p>
+                  )}
                 </div>
+              )}
+
+              {activeTab === 'Thể lệ' && (
+                <div>
+                  {contest.rules ? (
+                    <div className="whitespace-pre-wrap text-slate-600">{contest.rules}</div>
+                  ) : (
+                    <p className="text-slate-500 italic">Chưa có thông tin về thể lệ cuộc thi.</p>
+                  )}
+                </div>
+              )}
+
+              {activeTab === 'Lịch trình' && (
+                <div>
+                  {contest.schedule && contest.schedule.length > 0 ? (
+                    <div className="space-y-4">
+                      {contest.schedule.map((item, index) => (
+                        <div key={index} className="flex gap-4 p-4 bg-slate-50 rounded-lg">
+                          <div className="shrink-0">
+                            <div className="w-12 h-12 bg-primary-100 rounded-lg flex items-center justify-center">
+                              <Calendar className="w-6 h-6 text-primary-600" />
+                            </div>
+                          </div>
+                          <div>
+                            <div className="text-sm text-slate-500">{formatDate(item.date)}</div>
+                            <div className="font-semibold text-slate-900">{item.title}</div>
+                            {item.description && (
+                              <div className="text-sm text-slate-600 mt-1">{item.description}</div>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-slate-500 italic">Chưa có lịch trình chi tiết.</p>
+                  )}
+                </div>
+              )}
+
+              {activeTab === 'Đánh giá' && (
+                <Reviews
+                  targetType="contest"
+                  targetId={id!}
+                  targetTitle={contest.title}
+                  canReview={isRegistered}
+                  showTitle={true}
+                />
               )}
             </div>
           </div>
@@ -333,33 +763,127 @@ const ContestDetail: React.FC = () => {
           <Card className="p-6 sticky top-24">
             <div className="flex justify-between items-center mb-6">
               <span className="text-slate-500">Phí tham gia</span>
-              <span className="text-2xl font-bold text-primary-600">Miễn phí</span>
+              <span className="text-2xl font-bold text-primary-600">{formatPrice(contest.fee)}</span>
             </div>
-            <Button className="w-full mb-3" size="lg">Đăng ký ngay</Button>
-            <Button variant="secondary" className="w-full flex items-center justify-center">
-              <Share2 className="w-4 h-4 mr-2" /> Chia sẻ
+
+            {/* Register Button */}
+            {isRegistered ? (
+              <div className="space-y-3 mb-3">
+                <div className="flex items-center justify-center gap-2 py-3 px-4 bg-green-50 text-green-700 rounded-lg border border-green-200">
+                  <CheckCircle className="w-5 h-5" />
+                  <span className="font-medium">Đã đăng ký</span>
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    variant="secondary"
+                    className="flex-1 flex items-center justify-center"
+                    onClick={() => downloadCalendarFile(contest)}
+                  >
+                    <CalendarPlus className="w-4 h-4 mr-2" /> Thêm vào lịch
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    className="text-red-500 hover:text-red-600 hover:bg-red-50"
+                    onClick={handleCancelRegistration}
+                    disabled={isRegistering}
+                  >
+                    {isRegistering ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Hủy'}
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <Button
+                className="w-full mb-3"
+                size="lg"
+                onClick={handleRegister}
+                disabled={isRegistering || contest.status === 'CLOSED'}
+              >
+                {isRegistering ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Đang đăng ký...
+                  </>
+                ) : contest.status === 'CLOSED' ? (
+                  'Đã kết thúc'
+                ) : (
+                  <>
+                    <CalendarPlus className="w-4 h-4 mr-2" />
+                    Đăng ký ngay
+                  </>
+                )}
+              </Button>
+            )}
+
+            {/* Share Button */}
+            <Button
+              variant="secondary"
+              className="w-full flex items-center justify-center"
+              onClick={handleShare}
+            >
+              {isCopied ? (
+                <>
+                  <Check className="w-4 h-4 mr-2 text-green-600" />
+                  Đã sao chép!
+                </>
+              ) : (
+                <>
+                  <Share2 className="w-4 h-4 mr-2" />
+                  Chia sẻ
+                </>
+              )}
             </Button>
 
-            <div className="mt-6 pt-6 border-t border-slate-100 space-y-4">
-              <h4 className="font-semibold text-slate-900 text-sm">Tags</h4>
-              <div className="flex flex-wrap gap-2">
-                <span className="bg-slate-100 text-slate-600 px-2 py-1 rounded text-xs">#UI/UX</span>
-                <span className="bg-slate-100 text-slate-600 px-2 py-1 rounded text-xs">#Design</span>
-                <span className="bg-slate-100 text-slate-600 px-2 py-1 rounded text-xs">#Creative</span>
+            {contest.tags && contest.tags.length > 0 && (
+              <div className="mt-6 pt-6 border-t border-slate-100 space-y-4">
+                <h4 className="font-semibold text-slate-900 text-sm">Tags</h4>
+                <div className="flex flex-wrap gap-2">
+                  {contest.tags.map((tag, index) => (
+                    <span key={index} className="bg-slate-100 text-slate-600 px-2 py-1 rounded text-xs">#{tag}</span>
+                  ))}
+                </div>
               </div>
-            </div>
+            )}
           </Card>
 
-          <Card className="p-6">
-            <h4 className="font-semibold text-slate-900 mb-4">Đơn vị tổ chức</h4>
-            <div className="flex items-center space-x-3">
-              <div className="w-12 h-12 rounded-full bg-slate-200" />
-              <div>
-                <div className="font-medium text-slate-900">TechGen Z Club</div>
-                <div className="text-xs text-slate-500">Học viện Bưu chính Viễn thông</div>
+          {(contest.organizerDetails?.name || contest.organizer) && (
+            <Card className="p-6">
+              <h4 className="font-semibold text-slate-900 mb-4">Đơn vị tổ chức</h4>
+              <div className="flex items-center space-x-3">
+                {contest.organizerDetails?.logo ? (
+                  <img
+                    src={contest.organizerDetails.logo}
+                    alt={contest.organizerDetails.name}
+                    className="w-12 h-12 rounded-full object-cover"
+                  />
+                ) : (
+                  <div className="w-12 h-12 rounded-full bg-slate-200 flex items-center justify-center">
+                    <Users className="w-6 h-6 text-slate-400" />
+                  </div>
+                )}
+                <div>
+                  <div className="font-medium text-slate-900">
+                    {contest.organizerDetails?.name || contest.organizer}
+                  </div>
+                  {contest.organizerDetails?.school && (
+                    <div className="text-xs text-slate-500">{contest.organizerDetails.school}</div>
+                  )}
+                </div>
               </div>
-            </div>
-          </Card>
+              {contest.organizerDetails?.description && (
+                <p className="text-sm text-slate-600 mt-3">{contest.organizerDetails.description}</p>
+              )}
+              {contest.organizerDetails?.website && (
+                <a
+                  href={contest.organizerDetails.website}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-sm text-primary-600 hover:underline mt-2 inline-block"
+                >
+                  Xem trang web →
+                </a>
+              )}
+            </Card>
+          )}
         </div>
 
       </div>

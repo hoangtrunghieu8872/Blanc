@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { X, Users, Calendar, MapPin, Clock, MessageCircle, UserPlus, ExternalLink, Mail, Award, Briefcase, Tag, ChevronDown, ChevronUp, Settings, Crown } from 'lucide-react';
 import { Button, Badge } from './ui/Common';
+import UserAvatar from './UserAvatar';
 import { TeamPost, RoleSlot } from '../types';
 import { api } from '../lib/api';
 
@@ -125,7 +127,7 @@ const TeamPostDetailModal: React.FC<TeamPostDetailModalProps> = ({
             <div className="flex min-h-full items-center justify-center p-4">
                 <div className="relative w-full max-w-2xl bg-white rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
                     {/* Header */}
-                    <div className="relative bg-gradient-to-r from-primary-500 to-primary-600 px-6 py-8 text-white">
+                    <div className="relative bg-linear-to-r from-primary-500 to-primary-600 px-6 py-8 text-white">
                         <button
                             onClick={onClose}
                             className="absolute top-4 right-4 p-2 rounded-full bg-white/20 hover:bg-white/30 transition-colors"
@@ -136,13 +138,13 @@ const TeamPostDetailModal: React.FC<TeamPostDetailModalProps> = ({
                         </button>
 
                         <div className="flex items-start gap-4">
-                            <div className="w-16 h-16 rounded-xl bg-white/20 flex items-center justify-center text-2xl font-bold flex-shrink-0">
-                                {post.createdBy.avatar ? (
-                                    <img src={post.createdBy.avatar} alt="" className="w-full h-full rounded-xl object-cover" />
-                                ) : (
-                                    getInitials(post.createdBy.name)
-                                )}
-                            </div>
+                            <UserAvatar
+                                userId={post.createdBy.id}
+                                name={post.createdBy.name}
+                                avatar={post.createdBy.avatar}
+                                size="lg"
+                                className="[&_img]:rounded-xl [&_div]:rounded-xl"
+                            />
                             <div className="flex-1 min-w-0">
                                 <h2 className="text-xl font-bold mb-1 line-clamp-2">{post.title}</h2>
                                 {post.contestTitle && (
@@ -304,7 +306,7 @@ const TeamPostDetailModal: React.FC<TeamPostDetailModalProps> = ({
                         {/* Deadline */}
                         {post.deadline && (
                             <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-center gap-3">
-                                <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0">
+                                <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center shrink-0">
                                     <Calendar className="w-5 h-5 text-amber-600" />
                                 </div>
                                 <div>
@@ -336,16 +338,25 @@ const TeamPostDetailModal: React.FC<TeamPostDetailModalProps> = ({
                                 {post.members.map((member, index) => (
                                     <div key={member.id} className="p-3 bg-slate-50 rounded-xl">
                                         <div className="flex items-center gap-3">
-                                            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary-500 to-primary-700 flex items-center justify-center text-white font-semibold text-sm overflow-hidden flex-shrink-0">
+                                            <Link
+                                                to={`/user/${member.id}`}
+                                                className="w-10 h-10 rounded-full bg-linear-to-br from-primary-500 to-primary-700 flex items-center justify-center text-white font-semibold text-sm overflow-hidden shrink-0 hover:ring-2 hover:ring-primary-300 transition-all"
+                                                title={`Xem hồ sơ của ${member.name}`}
+                                            >
                                                 {member.avatar ? (
                                                     <img src={member.avatar} alt={member.name} className="w-full h-full object-cover rounded-full" />
                                                 ) : (
                                                     <span>{getInitials(member.name)}</span>
                                                 )}
-                                            </div>
+                                            </Link>
                                             <div className="flex-1 min-w-0">
                                                 <div className="flex items-center gap-2">
-                                                    <p className="font-medium text-slate-900 truncate">{member.name}</p>
+                                                    <Link
+                                                        to={`/user/${member.id}`}
+                                                        className="font-medium text-slate-900 truncate hover:text-primary-600 transition-colors"
+                                                    >
+                                                        {member.name}
+                                                    </Link>
                                                     {index === 0 && (
                                                         <span className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded text-xs font-medium">
                                                             <Crown className="w-3 h-3" />
@@ -444,7 +455,7 @@ const TeamPostDetailModal: React.FC<TeamPostDetailModalProps> = ({
                                             // Open email client to contact post creator
                                             const email = post.createdBy.email;
                                             if (email) {
-                                                const subject = encodeURIComponent(`[ContestHub] Về bài đăng: ${post.title}`);
+                                                const subject = encodeURIComponent(`[Blanc] Về bài đăng: ${post.title}`);
                                                 const body = encodeURIComponent(`Xin chào ${post.createdBy.name},\n\nTôi quan tâm đến bài đăng tuyển thành viên "${post.title}" của bạn.\n\n`);
                                                 window.location.href = `mailto:${email}?subject=${subject}&body=${body}`;
                                             } else {
@@ -472,8 +483,15 @@ const TeamPostDetailModal: React.FC<TeamPostDetailModalProps> = ({
 
                     {/* Footer */}
                     <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex items-center justify-between">
-                        <div className="text-sm text-slate-500">
-                            Đăng bởi <span className="font-medium text-slate-700">{post.createdBy.name}</span>
+                        <div className="text-sm text-slate-500 flex items-center gap-2">
+                            Đăng bởi{' '}
+                            <UserAvatar
+                                userId={post.createdBy.id}
+                                name={post.createdBy.name}
+                                avatar={post.createdBy.avatar}
+                                size="xs"
+                                showName
+                            />
                         </div>
                         <Button variant="secondary" onClick={onClose}>
                             Đóng

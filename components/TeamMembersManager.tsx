@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { Link } from 'react-router-dom';
 import { X, Users, Edit2, Save, Trash2, AlertCircle, Check, Loader2, UserMinus, Crown } from 'lucide-react';
 import { Button, Badge, Dropdown } from './ui/Common';
 import { TeamPost } from '../types';
@@ -204,16 +205,25 @@ const TeamMembersManager: React.FC<TeamMembersManagerProps> = ({
                                     >
                                         {/* Member Header */}
                                         <div className="flex items-center gap-3 p-4 bg-slate-50">
-                                            <div className="w-12 h-12 rounded-full bg-gradient-to-br from-primary-500 to-primary-700 flex items-center justify-center text-white font-semibold overflow-hidden flex-shrink-0">
+                                            <Link
+                                                to={`/user/${member.id}`}
+                                                className="w-12 h-12 rounded-full bg-linear-to-br from-primary-500 to-primary-700 flex items-center justify-center text-white font-semibold overflow-hidden shrink-0 hover:ring-2 hover:ring-primary-300 transition-all"
+                                                title={`Xem hồ sơ của ${member.name}`}
+                                            >
                                                 {member.avatar ? (
                                                     <img src={member.avatar} alt={member.name} className="w-full h-full object-cover" />
                                                 ) : (
                                                     getInitials(member.name)
                                                 )}
-                                            </div>
+                                            </Link>
                                             <div className="flex-1 min-w-0">
                                                 <div className="flex items-center gap-2">
-                                                    <p className="font-semibold text-slate-900 truncate">{member.name}</p>
+                                                    <Link
+                                                        to={`/user/${member.id}`}
+                                                        className="font-semibold text-slate-900 truncate hover:text-primary-600 transition-colors"
+                                                    >
+                                                        {member.name}
+                                                    </Link>
                                                     {isLeader && (
                                                         <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-amber-100 text-amber-700 rounded-full text-xs font-medium">
                                                             <Crown className="w-3 h-3" />

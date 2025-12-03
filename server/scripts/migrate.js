@@ -18,7 +18,7 @@ const contests = [
   {
     code: 'CH-HACK-2024',
     title: 'Hackathon Sinh vien Toan quoc 2024',
-    organizer: 'ContestHub',
+    organizer: 'Blanc',
     dateStart: '2024-09-10T00:00:00.000Z',
     deadline: '2024-10-01T00:00:00.000Z',
     status: 'FULL',
@@ -122,8 +122,8 @@ const courses = [
 
 const users = [
   {
-    email: 'admin@contesthub.dev',
-    name: 'Admin ContestHub',
+    email: 'admin@blanc.dev',
+    name: 'Admin Blanc',
     role: 'admin',
     password: bcrypt.hashSync('Admin123!', 12),
     avatar: '',
@@ -153,7 +153,7 @@ const users = [
       learningGoals: 'Mentoring các bạn trẻ, xây dựng sản phẩm có impact',
       strengths: 'Quản lý dự án, định hướng sản phẩm, kết nối team',
       achievements: 'Top 3 Hackathon 2023, Founder startup EdTech',
-      portfolioLinks: ['https://github.com/admin-contesthub'],
+      portfolioLinks: ['https://github.com/admin-blanc'],
     },
     consents: {
       allowMatching: true,
@@ -162,7 +162,7 @@ const users = [
     },
   },
   {
-    email: 'student@contesthub.dev',
+    email: 'student@blanc.dev',
     name: 'Student User',
     role: 'student',
     password: bcrypt.hashSync('Student123!', 12),
@@ -202,7 +202,7 @@ const users = [
     },
   },
   {
-    email: 'dev1@contesthub.dev',
+    email: 'dev1@blanc.dev',
     name: 'Trần Minh Đức',
     role: 'student',
     password: bcrypt.hashSync('Dev123!', 12),
@@ -242,7 +242,7 @@ const users = [
     },
   },
   {
-    email: 'dev2@contesthub.dev',
+    email: 'dev2@blanc.dev',
     name: 'Nguyễn Thị Lan',
     role: 'student',
     password: bcrypt.hashSync('Dev123!', 12),
@@ -282,7 +282,7 @@ const users = [
     },
   },
   {
-    email: 'designer@contesthub.dev',
+    email: 'designer@blanc.dev',
     name: 'Lê Hoàng Nam',
     role: 'student',
     password: bcrypt.hashSync('Designer123!', 12),

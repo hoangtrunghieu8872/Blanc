@@ -241,7 +241,7 @@ const MultiSelectTags: React.FC<MultiSelectTagsProps> = ({
                             <Search className="w-4 h-4" />
                             <span className="text-xs">Đã chọn {values.length}/{maxItems}</span>
                         </div>
-                        <div className="max-h-[240px] overflow-y-auto p-2">
+                        <div className="max-h-60 overflow-y-auto p-2">
                             {filteredOptions.length === 0 ? (
                                 <p className="text-sm text-slate-400 text-center py-3">
                                     {searchQuery ? 'Không tìm thấy' : 'Đã chọn hết'}
@@ -1297,19 +1297,6 @@ const UserSettings: React.FC = () => {
                                             onChange={(checked) => setProfileForm(prev => ({
                                                 ...prev,
                                                 matchingProfile: { ...prev.matchingProfile, openToNewTeams: checked }
-                                            }))}
-                                        />
-                                    </div>
-                                    <div className="flex items-center justify-between p-3 border border-slate-100 rounded-lg">
-                                        <div>
-                                            <p className="font-medium text-slate-900 text-sm">Sẵn sàng mentoring / hỗ trợ</p>
-                                            <p className="text-xs text-slate-500">Cho phép gợi ý bạn như mentor/support</p>
-                                        </div>
-                                        <ToggleSwitch
-                                            checked={profileForm.matchingProfile.openToMentor}
-                                            onChange={(checked) => setProfileForm(prev => ({
-                                                ...prev,
-                                                matchingProfile: { ...prev.matchingProfile, openToMentor: checked }
                                             }))}
                                         />
                                     </div>

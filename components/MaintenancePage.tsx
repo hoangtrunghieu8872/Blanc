@@ -5,13 +5,13 @@ interface MaintenancePageProps {
     siteName?: string;
 }
 
-const MaintenancePage: React.FC<MaintenancePageProps> = ({ siteName = 'ContestHub' }) => {
+const MaintenancePage: React.FC<MaintenancePageProps> = ({ siteName = 'Blanc' }) => {
     return (
-        <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 flex items-center justify-center p-4">
+        <div className="min-h-screen bg-linear-to-br from-gray-900 via-gray-800 to-gray-900 flex items-center justify-center p-4">
             <div className="max-w-md w-full text-center">
                 {/* Animated Icon */}
                 <div className="relative mb-8">
-                    <div className="w-24 h-24 mx-auto bg-gradient-to-br from-amber-500 to-orange-600 rounded-full flex items-center justify-center shadow-2xl animate-pulse">
+                    <div className="w-24 h-24 mx-auto bg-linear-to-br from-amber-500 to-orange-600 rounded-full flex items-center justify-center shadow-2xl animate-pulse">
                         <Settings className="w-12 h-12 text-white animate-spin-slow" style={{ animationDuration: '3s' }} />
                     </div>
                     <div className="absolute -top-2 -right-2 w-8 h-8 bg-red-500 rounded-full flex items-center justify-center animate-bounce">
@@ -46,7 +46,7 @@ const MaintenancePage: React.FC<MaintenancePageProps> = ({ siteName = 'ContestHu
                 {/* Refresh Button */}
                 <button
                     onClick={() => window.location.reload()}
-                    className="mt-8 px-6 py-3 bg-gradient-to-r from-emerald-500 to-teal-600 text-white font-semibold rounded-lg hover:from-emerald-600 hover:to-teal-700 transition-all transform hover:scale-105 shadow-lg"
+                    className="mt-8 px-6 py-3 bg-linear-to-r from-emerald-500 to-teal-600 text-white font-semibold rounded-lg hover:from-emerald-600 hover:to-teal-700 transition-all transform hover:scale-105 shadow-lg"
                 >
                     Kiểm tra lại
                 </button>
