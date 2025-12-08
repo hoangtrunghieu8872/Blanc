@@ -1,12 +1,9 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { clsx, type ClassValue } from 'clsx';
-import { twMerge } from 'tailwind-merge';
-import { Check, ChevronDown } from 'lucide-react';
+import React, { useState, useRef, useEffect, createContext, useContext, useCallback } from 'react';
+import { Check, ChevronDown, X, CheckCircle, AlertCircle, AlertTriangle, Info } from 'lucide-react';
+import { cn } from '../../lib/utils';
 
-// Utility for merging tailwind classes
-export function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
-}
+// Re-export cn for backward compatibility
+export { cn } from '../../lib/utils';
 
 // Button
 interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
@@ -256,17 +253,12 @@ export const Tabs: React.FC<{ tabs: string[]; activeTab: string; onChange: (tab:
   </div>
 );
 
-// Skeleton Loading
-export const Skeleton: React.FC<{ className?: string }> = ({ className }) => (
-  <div className={cn("animate-pulse bg-slate-200 rounded", className)} />
-);
-
-// Skeleton Card
+// Skeleton Card (using Skeleton from below)
 export const SkeletonCard: React.FC<{ lines?: number }> = ({ lines = 3 }) => (
   <Card className="p-4 space-y-3">
-    <Skeleton className="h-4 w-3/4" />
+    <div className="animate-pulse bg-slate-200 rounded h-4 w-3/4" />
     {Array.from({ length: lines - 1 }).map((_, i) => (
-      <Skeleton key={i} className="h-3 w-full" />
+      <div key={i} className="animate-pulse bg-slate-200 rounded h-3 w-full" />
     ))}
   </Card>
 );
@@ -377,3 +369,171 @@ export const Progress: React.FC<ProgressProps> = ({ value, max = 100, color = 'p
     </div>
   );
 };
+
+// Toast Notification
+export interface ToastProps {
+  id: string;
+  type: 'success' | 'error' | 'warning' | 'info';
+  message: string;
+  duration?: number;
+}
+
+interface ToastItemProps extends ToastProps {
+  onClose: (id: string) => void;
+}
+
+const ToastItem: React.FC<ToastItemProps> = ({ id, type, message, duration = 4000, onClose }) => {
+  useEffect(() => {
+    const timer = setTimeout(() => onClose(id), duration);
+    return () => clearTimeout(timer);
+  }, [id, duration, onClose]);
+
+  const icons = {
+    success: (
+      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+      </svg>
+    ),
+    error: (
+      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+      </svg>
+    ),
+    warning: (
+      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+      </svg>
+    ),
+    info: (
+      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+      </svg>
+    ),
+  };
+
+  const styles = {
+    success: 'bg-emerald-50 text-emerald-800 border-emerald-200',
+    error: 'bg-red-50 text-red-800 border-red-200',
+    warning: 'bg-amber-50 text-amber-800 border-amber-200',
+    info: 'bg-blue-50 text-blue-800 border-blue-200',
+  };
+
+  const iconStyles = {
+    success: 'text-emerald-500',
+    error: 'text-red-500',
+    warning: 'text-amber-500',
+    info: 'text-blue-500',
+  };
+
+  return (
+    <div className={cn(
+      'flex items-center gap-3 px-4 py-3 rounded-lg border shadow-lg animate-slide-in-right',
+      styles[type]
+    )}>
+      <span className={iconStyles[type]}>{icons[type]}</span>
+      <p className="text-sm font-medium flex-1">{message}</p>
+      <button
+        onClick={() => onClose(id)}
+        className="text-current opacity-50 hover:opacity-100 transition-opacity"
+      >
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+        </svg>
+      </button>
+    </div>
+  );
+};
+
+// Toast Container with Context
+interface ToastContextType {
+  showToast: (type: ToastProps['type'], message: string, duration?: number) => void;
+}
+
+const ToastContext = React.createContext<ToastContextType | null>(null);
+
+export const useToast = () => {
+  const context = React.useContext(ToastContext);
+  if (!context) {
+    throw new Error('useToast must be used within a ToastProvider');
+  }
+  return context;
+};
+
+export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [toasts, setToasts] = useState<ToastProps[]>([]);
+
+  const showToast = React.useCallback((type: ToastProps['type'], message: string, duration = 4000) => {
+    const id = `toast-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    setToasts(prev => [...prev, { id, type, message, duration }]);
+  }, []);
+
+  const removeToast = React.useCallback((id: string) => {
+    setToasts(prev => prev.filter(toast => toast.id !== id));
+  }, []);
+
+  return (
+    <ToastContext.Provider value={{ showToast }}>
+      {children}
+      {/* Toast Container */}
+      <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2 max-w-sm">
+        {toasts.map(toast => (
+          <ToastItem key={toast.id} {...toast} onClose={removeToast} />
+        ))}
+      </div>
+    </ToastContext.Provider>
+  );
+};
+
+// Skeleton Loading
+interface SkeletonProps {
+  className?: string;
+  variant?: 'text' | 'circular' | 'rectangular';
+  width?: string | number;
+  height?: string | number;
+}
+
+export const Skeleton: React.FC<SkeletonProps> = ({
+  className,
+  variant = 'text',
+  width,
+  height
+}) => {
+  const baseStyles = 'animate-pulse bg-slate-200';
+
+  const variants = {
+    text: 'rounded h-4',
+    circular: 'rounded-full',
+    rectangular: 'rounded-lg',
+  };
+
+  return (
+    <div
+      className={cn(baseStyles, variants[variant], className)}
+      style={{ width, height }}
+    />
+  );
+};
+
+// Report Card Skeleton
+export const ReportCardSkeleton: React.FC = () => (
+  <tr className="border-b border-slate-100">
+    <td className="px-6 py-4">
+      <div className="flex items-center gap-3">
+        <Skeleton variant="rectangular" className="w-8 h-8" />
+        <Skeleton width={200} />
+      </div>
+    </td>
+    <td className="px-6 py-4 hidden md:table-cell">
+      <Skeleton width={120} />
+    </td>
+    <td className="px-6 py-4">
+      <Skeleton width={80} className="rounded-full h-6" />
+    </td>
+    <td className="px-6 py-4 hidden sm:table-cell">
+      <Skeleton width={100} />
+    </td>
+    <td className="px-6 py-4 text-right">
+      <Skeleton variant="circular" className="w-8 h-8 ml-auto" />
+    </td>
+  </tr>
+);

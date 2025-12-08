@@ -909,6 +909,60 @@ function getNotificationMessage(notification) {
     }
 }
 
+/**
+ * PATCH /api/users/me/notifications/mark-all-read
+ * Mark all notifications as read for current user
+ */
+router.patch('/me/notifications/mark-all-read', authGuard, async (req, res, next) => {
+    try {
+        await connectToDatabase();
+        const userId = req.user.id;
+
+        if (!ObjectId.isValid(userId)) {
+            return res.status(400).json({ error: 'Invalid user ID' });
+        }
+
+        const notificationLogs = getCollection('notification_logs');
+
+        // Add userId to readBy array for all notifications
+        await notificationLogs.updateMany(
+            { readBy: { $ne: userId } },
+            { $addToSet: { readBy: userId } }
+        );
+
+        res.json({ success: true, message: 'All notifications marked as read' });
+    } catch (error) {
+        next(error);
+    }
+});
+
+/**
+ * PATCH /api/users/me/notifications/:notificationId/read
+ * Mark a single notification as read
+ */
+router.patch('/me/notifications/:notificationId/read', authGuard, async (req, res, next) => {
+    try {
+        await connectToDatabase();
+        const userId = req.user.id;
+        const { notificationId } = req.params;
+
+        if (!ObjectId.isValid(userId) || !ObjectId.isValid(notificationId)) {
+            return res.status(400).json({ error: 'Invalid ID' });
+        }
+
+        const notificationLogs = getCollection('notification_logs');
+
+        await notificationLogs.updateOne(
+            { _id: new ObjectId(notificationId) },
+            { $addToSet: { readBy: userId } }
+        );
+
+        res.json({ success: true });
+    } catch (error) {
+        next(error);
+    }
+});
+
 // ============ STREAK ENDPOINTS ============
 
 /**

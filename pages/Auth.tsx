@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button, Input, Card, Dropdown } from '../components/ui/Common';
 import { api } from '../lib/api';
-import { Check, User, Briefcase, MapPin, Code, Target, Shield, RefreshCw } from 'lucide-react';
+import { Check, User, Briefcase, MapPin, Code, Target, Shield, RefreshCw, FileText, ExternalLink } from 'lucide-react';
 
 interface AuthResponse {
   token: string;
@@ -146,14 +146,14 @@ const SimpleOtpInput: React.FC<{
   );
 };
 
-// Step Progress Indicator Component - Updated for 3 steps in registration
+// Step Progress Indicator Component - Updated for 4 steps in registration
 const StepProgress: React.FC<{ currentStep: number; isAnimating: boolean; totalSteps?: number }> = ({
   currentStep,
   isAnimating,
-  totalSteps = 3
+  totalSteps = 4
 }) => {
-  const steps = totalSteps === 3
-    ? [{ label: 'Tài khoản', num: 1 }, { label: 'Xác thực', num: 2 }, { label: 'Hồ sơ', num: 3 }]
+  const steps = totalSteps === 4
+    ? [{ label: 'Điều khoản', num: 1 }, { label: 'Tài khoản', num: 2 }, { label: 'Xác thực', num: 3 }, { label: 'Hồ sơ', num: 4 }]
     : [{ label: 'Tài khoản', num: 1 }, { label: 'Hồ sơ', num: 2 }];
 
   return (
@@ -196,8 +196,12 @@ const Auth: React.FC<{ type: 'login' | 'register' }> = ({ type }) => {
   const navigate = useNavigate();
   const isLogin = type === 'login';
 
-  // Step state for registration (1: Account, 2: OTP, 3: Profile)
+  // Step state for registration (1: Terms, 2: Account, 3: OTP, 4: Profile)
   const [currentStep, setCurrentStep] = useState(1);
+
+  // Terms acceptance state
+  const [termsAccepted, setTermsAccepted] = useState(false);
+  const [privacyAccepted, setPrivacyAccepted] = useState(false);
   const [isAnimating, setIsAnimating] = useState(false);
 
   // Form data for step 1
@@ -555,8 +559,101 @@ const Auth: React.FC<{ type: 'login' | 'register' }> = ({ type }) => {
     }
   };
 
-  // Render Step 1 Form (Account Info)
-  const renderStep1Form = () => (
+  // Render Step 1 Form (Terms & Conditions)
+  const renderTermsForm = () => (
+    <div className="space-y-5">
+      <div className="text-center mb-4">
+        <div className="w-16 h-16 bg-primary-100 rounded-full flex items-center justify-center mx-auto mb-3">
+          <FileText className="w-8 h-8 text-primary-600" />
+        </div>
+        <h3 className="text-lg font-semibold text-slate-900 mb-1">Điều khoản sử dụng</h3>
+        <p className="text-slate-600 text-sm">
+          Vui lòng đọc và đồng ý với các điều khoản trước khi tiếp tục
+        </p>
+      </div>
+
+      {/* Terms Summary Box */}
+      <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 max-h-48 overflow-y-auto text-sm text-slate-600 space-y-3">
+        <div>
+          <h4 className="font-semibold text-slate-800 mb-1">📋 Điều khoản dịch vụ</h4>
+          <p>Bằng việc sử dụng Blanc, bạn đồng ý tuân thủ các quy định về nội dung, hành vi và sử dụng dịch vụ của chúng tôi.</p>
+        </div>
+        <div>
+          <h4 className="font-semibold text-slate-800 mb-1">🔒 Chính sách bảo mật</h4>
+          <p>Chúng tôi cam kết bảo vệ thông tin cá nhân của bạn và chỉ sử dụng cho mục đích cung cấp dịch vụ.</p>
+        </div>
+        <div>
+          <h4 className="font-semibold text-slate-800 mb-1">🤝 Quy tắc cộng đồng</h4>
+          <p>Tôn trọng lẫn nhau, không spam, không chia sẻ nội dung vi phạm pháp luật.</p>
+        </div>
+      </div>
+
+      {/* Checkbox Agreements */}
+      <div className="space-y-3">
+        <label className="flex items-start gap-3 cursor-pointer group">
+          <input
+            type="checkbox"
+            checked={termsAccepted}
+            onChange={(e) => setTermsAccepted(e.target.checked)}
+            className="mt-1 w-5 h-5 rounded border-slate-300 text-primary-600 focus:ring-primary-500 cursor-pointer"
+          />
+          <span className="text-sm text-slate-600 group-hover:text-slate-800">
+            Tôi đã đọc và đồng ý với{' '}
+            <a
+              href="/terms"
+              target="_blank"
+              className="text-primary-600 hover:text-primary-700 font-medium inline-flex items-center gap-1"
+            >
+              Điều khoản sử dụng
+              <ExternalLink className="w-3 h-3" />
+            </a>
+          </span>
+        </label>
+
+        <label className="flex items-start gap-3 cursor-pointer group">
+          <input
+            type="checkbox"
+            checked={privacyAccepted}
+            onChange={(e) => setPrivacyAccepted(e.target.checked)}
+            className="mt-1 w-5 h-5 rounded border-slate-300 text-primary-600 focus:ring-primary-500 cursor-pointer"
+          />
+          <span className="text-sm text-slate-600 group-hover:text-slate-800">
+            Tôi đã đọc và đồng ý với{' '}
+            <a
+              href="/privacy"
+              target="_blank"
+              className="text-primary-600 hover:text-primary-700 font-medium inline-flex items-center gap-1"
+            >
+              Chính sách bảo mật
+              <ExternalLink className="w-3 h-3" />
+            </a>
+          </span>
+        </label>
+      </div>
+
+      <Button
+        type="button"
+        className="w-full text-lg h-12"
+        disabled={!termsAccepted || !privacyAccepted}
+        onClick={() => {
+          setIsAnimating(true);
+          setTimeout(() => {
+            setCurrentStep(2);
+            setIsAnimating(false);
+          }, 500);
+        }}
+      >
+        Đồng ý và tiếp tục
+      </Button>
+
+      <p className="text-xs text-slate-400 text-center">
+        Bằng việc tiếp tục, bạn xác nhận đã đủ 13 tuổi trở lên
+      </p>
+    </div>
+  );
+
+  // Render Step 2 Form (Account Info)
+  const renderStep2Form = () => (
     <form className="space-y-5" onSubmit={handleStep1Submit}>
       {error && (
         <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
@@ -605,8 +702,8 @@ const Auth: React.FC<{ type: 'login' | 'register' }> = ({ type }) => {
     </form>
   );
 
-  // Render Step 2 Form (OTP Verification)
-  const renderStep2OtpForm = () => (
+  // Render Step 3 Form (OTP Verification)
+  const renderStep3OtpForm = () => (
     <div className="space-y-5">
       <div className="text-center mb-4">
         <div className="w-16 h-16 bg-primary-100 rounded-full flex items-center justify-center mx-auto mb-3">
@@ -666,7 +763,7 @@ const Auth: React.FC<{ type: 'login' | 'register' }> = ({ type }) => {
       <button
         type="button"
         onClick={() => {
-          setCurrentStep(1);
+          setCurrentStep(2);
           setOtp('');
           setOtpError('');
         }}
@@ -677,8 +774,8 @@ const Auth: React.FC<{ type: 'login' | 'register' }> = ({ type }) => {
     </div>
   );
 
-  // Render Step 3 Form (Profile Info) - was Step 2
-  const renderStep3Form = () => (
+  // Render Step 4 Form (Profile Info)
+  const renderStep4Form = () => (
     <form className="space-y-4" onSubmit={handleStep3Submit}>
       <div className="text-center mb-4">
         <div className="w-16 h-16 bg-primary-100 rounded-full flex items-center justify-center mx-auto mb-3">
@@ -930,15 +1027,20 @@ const Auth: React.FC<{ type: 'login' | 'register' }> = ({ type }) => {
     switch (currentStep) {
       case 1:
         return {
+          title: 'Điều khoản sử dụng',
+          subtitle: 'Vui lòng đọc và đồng ý với các điều khoản của chúng tôi.'
+        };
+      case 2:
+        return {
           title: 'Tạo tài khoản mới',
           subtitle: 'Tham gia cộng đồng học tập lớn nhất Việt Nam.'
         };
-      case 2:
+      case 3:
         return {
           title: 'Xác thực email',
           subtitle: 'Nhập mã OTP đã gửi đến email của bạn.'
         };
-      case 3:
+      case 4:
         return {
           title: 'Hoàn thiện hồ sơ',
           subtitle: 'Giúp chúng tôi hiểu bạn hơn để gợi ý phù hợp.'
@@ -956,13 +1058,19 @@ const Auth: React.FC<{ type: 'login' | 'register' }> = ({ type }) => {
         description: 'Xác thực 2 bước giúp bảo vệ tài khoản của bạn khỏi truy cập trái phép.'
       };
     }
-    if (!isLogin && currentStep === 2) {
+    if (!isLogin && currentStep === 1) {
+      return {
+        title: 'Chào mừng đến Blanc!',
+        description: 'Trước khi bắt đầu, hãy dành chút thời gian để đọc các điều khoản của chúng tôi.'
+      };
+    }
+    if (!isLogin && currentStep === 3) {
       return {
         title: 'Xác thực email',
         description: 'Chúng tôi cần xác nhận email để đảm bảo tính bảo mật cho tài khoản của bạn.'
       };
     }
-    if (!isLogin && currentStep === 3) {
+    if (!isLogin && currentStep === 4) {
       return {
         title: 'Sắp hoàn tất!',
         description: 'Thông tin của bạn sẽ giúp chúng tôi gợi ý cuộc thi và đồng đội phù hợp nhất.'
@@ -984,7 +1092,7 @@ const Auth: React.FC<{ type: 'login' | 'register' }> = ({ type }) => {
         {/* Left: Form */}
         <div className="p-8 md:p-10 flex flex-col justify-center">
           {/* Step Progress for Registration */}
-          {!isLogin && <StepProgress currentStep={currentStep} isAnimating={isAnimating} totalSteps={3} />}
+          {!isLogin && <StepProgress currentStep={currentStep} isAnimating={isAnimating} totalSteps={4} />}
 
           <div className="mb-6">
             <h2 className="text-2xl font-extrabold text-slate-900 mb-2">{title}</h2>
@@ -997,13 +1105,15 @@ const Auth: React.FC<{ type: 'login' | 'register' }> = ({ type }) => {
               ? render2FAForm()
               : renderLoginForm()
             : currentStep === 1
-              ? renderStep1Form()
+              ? renderTermsForm()
               : currentStep === 2
-                ? renderStep2OtpForm()
-                : renderStep3Form()}
+                ? renderStep2Form()
+                : currentStep === 3
+                  ? renderStep3OtpForm()
+                  : renderStep4Form()}
 
-          {/* Footer link - only show for step 1 or login (without 2FA) */}
-          {((isLogin && !requires2FA) || (!isLogin && currentStep === 1)) && (
+          {/* Footer link - only show for steps 1-2 or login (without 2FA) */}
+          {((isLogin && !requires2FA) || (!isLogin && currentStep <= 2)) && (
             <div className="mt-6 text-center text-sm text-slate-500">
               {isLogin ? "Chưa có tài khoản?" : "Đã có tài khoản?"}{" "}
               <span
@@ -1033,6 +1143,7 @@ const Auth: React.FC<{ type: 'login' | 'register' }> = ({ type }) => {
               <div className={`w-2 h-2 rounded-full transition-all duration-500 ${currentStep >= 1 ? 'bg-white' : 'bg-white/30'}`} />
               <div className={`w-2 h-2 rounded-full transition-all duration-500 ${currentStep >= 2 ? 'bg-white' : 'bg-white/30'}`} />
               <div className={`w-2 h-2 rounded-full transition-all duration-500 ${currentStep >= 3 ? 'bg-white' : 'bg-white/30'}`} />
+              <div className={`w-2 h-2 rounded-full transition-all duration-500 ${currentStep >= 4 ? 'bg-white' : 'bg-white/30'}`} />
             </div>
           )}
 

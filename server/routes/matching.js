@@ -28,6 +28,10 @@ import {
     invalidateUserCache,
     getCacheStats
 } from '../lib/matchingEngine.js';
+import {
+    getRecommendedContent,
+    invalidateContentCache
+} from '../lib/contentMatchingEngine.js';
 import { ObjectId } from 'mongodb';
 
 const router = Router();
@@ -418,5 +422,103 @@ function getTipsForMissingFields(missing) {
 
     return tips.slice(0, 3); // Return top 3 tips
 }
+
+// ============================================================================
+// CONTENT RECOMMENDATIONS (Contests & Courses for Homepage)
+// ============================================================================
+
+/**
+ * GET /api/matching/content-recommendations
+ * Get recommended contests and courses based on user profile
+ * For homepage display - no score shown, just sorted by relevance
+ * 
+ * Query params:
+ * - contestLimit: Number of contests (1-6, default: 3)
+ * - courseLimit: Number of courses (1-8, default: 4)
+ */
+router.get('/content-recommendations', authGuard, recommendationLimiter, async (req, res, next) => {
+    try {
+        await connectToDatabase();
+
+        const userId = req.user?.id;
+        if (!userId || !isValidObjectId(userId)) {
+            return res.status(401).json({ error: 'Unauthorized' });
+        }
+
+        // Parse and validate limits
+        const contestLimit = Math.min(Math.max(parseInt(req.query.contestLimit) || 3, 1), 6);
+        const courseLimit = Math.min(Math.max(parseInt(req.query.courseLimit) || 4, 1), 8);
+
+        // Get recommended content
+        const recommendations = await getRecommendedContent(userId, {
+            contestLimit,
+            courseLimit
+        });
+
+        res.json({
+            success: true,
+            contests: recommendations.contests.map(c => ({
+                id: c._id?.toString() || c.id,
+                title: c.title,
+                organizer: c.organizer,
+                dateStart: c.dateStart,
+                deadline: c.deadline,
+                status: c.status,
+                fee: c.fee,
+                tags: c.tags,
+                image: c.image,
+                description: c.description,
+                category: c.category,
+                locationType: c.locationType
+            })),
+            courses: recommendations.courses.map(c => ({
+                id: c._id?.toString() || c.id,
+                title: c.title,
+                instructor: c.instructor,
+                price: c.price,
+                rating: c.rating,
+                reviewsCount: c.reviewsCount,
+                level: c.level,
+                image: c.image,
+                description: c.description,
+                duration: c.duration
+            })),
+            meta: {
+                personalized: true,
+                cached: true,
+                cacheTTL: '1 hour'
+            }
+        });
+
+    } catch (error) {
+        console.error('[Matching API] Content recommendations error:', error);
+        next(error);
+    }
+});
+
+/**
+ * POST /api/matching/content-refresh
+ * Force refresh content recommendations cache
+ */
+router.post('/content-refresh', authGuard, refreshLimiter, async (req, res, next) => {
+    try {
+        const userId = req.user?.id;
+        if (!userId || !isValidObjectId(userId)) {
+            return res.status(401).json({ error: 'Unauthorized' });
+        }
+
+        // Clear user's content cache
+        invalidateContentCache(userId);
+
+        res.json({
+            success: true,
+            message: 'Đã làm mới gợi ý nội dung'
+        });
+
+    } catch (error) {
+        console.error('[Matching API] Content refresh error:', error);
+        next(error);
+    }
+});
 
 export default router;

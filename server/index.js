@@ -23,18 +23,47 @@ import matchingRouter from './routes/matching.js';
 import adminRouter from './routes/admin.js';
 import reviewsRouter from './routes/reviews.js';
 import documentsRouter from './routes/documents.js';
+import reportsRouter from './routes/reports.js';
 
 const app = express();
 const port = process.env.PORT || 4000;
+
+// Trust the upstream proxy so rate limiting can read the real client IP from X-Forwarded-For
+// Defaults to a single hop but can be overridden via TRUST_PROXY env (e.g. "true", "false", number, or subnet string)
+const trustProxy = process.env.TRUST_PROXY;
+if (trustProxy !== undefined) {
+  const parsedTrustProxy =
+    trustProxy === 'true'
+      ? true
+      : trustProxy === 'false'
+        ? false
+        : Number.isNaN(Number(trustProxy))
+          ? trustProxy
+          : Number(trustProxy);
+  app.set('trust proxy', parsedTrustProxy);
+} else {
+  app.set('trust proxy', 1);
+}
 
 const corsOrigins = process.env.FRONTEND_ORIGIN
   ? process.env.FRONTEND_ORIGIN.split(',').map((origin) => origin.trim()).filter(Boolean)
   : ['http://localhost:5173'];
 
+// Add default production origins if not already included
+const defaultProductionOrigins = [
+  'https://contesthub.homelabo.work',
+  'https://admin.contesthub.homelabo.work',
+  'https://contesthub-4-admin.vercel.app',
+  'https://contesthub-4.vercel.app'
+];
+
+// Merge origins, avoiding duplicates
+const allOrigins = [...new Set([...corsOrigins, ...defaultProductionOrigins])];
+
 app.use(helmet({ crossOriginResourcePolicy: false }));
 app.use(
   cors({
-    origin: corsOrigins,
+    origin: allOrigins,
     credentials: true,
   })
 );
@@ -67,6 +96,7 @@ app.use('/api/matching', matchingRouter);
 app.use('/api/admin', adminRouter);
 app.use('/api/reviews', reviewsRouter);
 app.use('/api/documents', documentsRouter);
+app.use('/api/reports', reportsRouter);
 
 app.use((req, res) => {
   res.status(404).json({ error: 'Not Found' });

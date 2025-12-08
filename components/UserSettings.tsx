@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Button, Input, Card } from './ui/Common';
 import { api, API_BASE_URL } from '../lib/api';
 import {
@@ -419,7 +420,15 @@ const Toast: React.FC<{
 
 // ============ MAIN SETTINGS COMPONENT ============
 const UserSettings: React.FC = () => {
-    const [activeTab, setActiveTab] = useState<SettingsTab>('profile');
+    const [searchParams] = useSearchParams();
+    const settingsTabFromUrl = searchParams.get('settingsTab') as SettingsTab | null;
+
+    const [activeTab, setActiveTab] = useState<SettingsTab>(() => {
+        if (settingsTabFromUrl && ['profile', 'security', 'notifications', 'privacy'].includes(settingsTabFromUrl)) {
+            return settingsTabFromUrl;
+        }
+        return 'profile';
+    });
     const [profile, setProfile] = useState<UserProfile | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [isSaving, setIsSaving] = useState(false);
@@ -427,6 +436,13 @@ const UserSettings: React.FC = () => {
     const [isTestingNotification, setIsTestingNotification] = useState(false);
     const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
     const avatarInputRef = useRef<HTMLInputElement>(null);
+
+    // Update tab when URL changes
+    useEffect(() => {
+        if (settingsTabFromUrl && ['profile', 'security', 'notifications', 'privacy'].includes(settingsTabFromUrl)) {
+            setActiveTab(settingsTabFromUrl);
+        }
+    }, [settingsTabFromUrl]);
 
     // Form states
     const [profileForm, setProfileForm] = useState<{

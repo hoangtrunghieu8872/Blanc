@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Search, ArrowRight, Users, Trophy, BookOpen, Star, Calendar, Loader2, X } from 'lucide-react';
 import { Button, Card, Badge } from '../components/ui/Common';
 import { useNavigate } from 'react-router-dom';
-import { useSearch, useStats, useContests, useCourses } from '../lib/hooks';
+import { useSearch, useStats, useContests, useCourses, useRecommendedContent } from '../lib/hooks';
 import OptimizedImage from '../components/OptimizedImage';
 
 const Home: React.FC = () => {
@@ -13,8 +13,33 @@ const Home: React.FC = () => {
 
   // Database hooks
   const { stats, isLoading: statsLoading } = useStats();
-  const { contests, isLoading: contestsLoading } = useContests({ limit: 3 });
-  const { courses, isLoading: coursesLoading } = useCourses({ limit: 4 });
+  const { contests: defaultContests, isLoading: contestsLoading } = useContests({ limit: 3 });
+  const { courses: defaultCourses, isLoading: coursesLoading } = useCourses({ limit: 4 });
+
+  // Personalized recommendations (only for logged-in users)
+  const {
+    contests: recommendedContests,
+    courses: recommendedCourses,
+    isLoading: recommendationsLoading,
+    isPersonalized,
+    hasRecommendations
+  } = useRecommendedContent({
+    contestLimit: 3,
+    courseLimit: 4,
+    autoFetch: isLoggedIn
+  });
+
+  // Use personalized recommendations if available, otherwise fall back to default
+  const displayContests = isLoggedIn && hasRecommendations && recommendedContests.length > 0
+    ? recommendedContests
+    : defaultContests;
+  const displayCourses = isLoggedIn && hasRecommendations && recommendedCourses.length > 0
+    ? recommendedCourses
+    : defaultCourses;
+
+  // Combined loading state
+  const isContestsLoading = isLoggedIn ? (recommendationsLoading && contestsLoading) : contestsLoading;
+  const isCoursesLoading = isLoggedIn ? (recommendationsLoading && coursesLoading) : coursesLoading;
 
   // Search functionality
   const { query, setQuery, results, isLoading: searchLoading, hasResults, clearSearch } = useSearch({
@@ -218,8 +243,14 @@ const Home: React.FC = () => {
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full">
         <div className="flex justify-between items-end mb-8">
           <div>
-            <h2 className="text-2xl font-bold text-slate-900">Cuộc thi nổi bật</h2>
-            <p className="text-slate-500 mt-1">Thử thách bản thân với các cuộc thi mới nhất</p>
+            <h2 className="text-2xl font-bold text-slate-900">
+              {isLoggedIn && isPersonalized ? 'Cuộc thi dành cho bạn' : 'Cuộc thi nổi bật'}
+            </h2>
+            <p className="text-slate-500 mt-1">
+              {isLoggedIn && isPersonalized
+                ? 'Được gợi ý dựa trên hồ sơ của bạn'
+                : 'Thử thách bản thân với các cuộc thi mới nhất'}
+            </p>
           </div>
           <Button variant="ghost" className="hidden sm:flex" onClick={() => navigate('/contests')}>
             Xem tất cả <ArrowRight className="w-4 h-4 ml-2" />
@@ -227,7 +258,7 @@ const Home: React.FC = () => {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {contestsLoading ? (
+          {isContestsLoading ? (
             // Loading skeleton for contests
             [...Array(3)].map((_, i) => (
               <Card key={i} className="animate-pulse">
@@ -243,8 +274,8 @@ const Home: React.FC = () => {
                 </div>
               </Card>
             ))
-          ) : contests.length > 0 ? (
-            contests.map((contest) => (
+          ) : displayContests.length > 0 ? (
+            displayContests.map((contest) => (
               <Card key={contest.id} className="group cursor-pointer" onClick={() => navigate(`/contests/${contest.id}`)}>
                 <div className="relative h-48 overflow-hidden">
                   <OptimizedImage
@@ -293,8 +324,14 @@ const Home: React.FC = () => {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full">
           <div className="flex justify-between items-end mb-8">
             <div>
-              <h2 className="text-2xl font-bold text-slate-900">Khóa học đề xuất</h2>
-              <p className="text-slate-500 mt-1">Nâng cao kỹ năng với lộ trình bài bản</p>
+              <h2 className="text-2xl font-bold text-slate-900">
+                {isLoggedIn && isPersonalized ? 'Khóa học dành cho bạn' : 'Khóa học đề xuất'}
+              </h2>
+              <p className="text-slate-500 mt-1">
+                {isLoggedIn && isPersonalized
+                  ? 'Được gợi ý dựa trên kỹ năng và sở thích của bạn'
+                  : 'Nâng cao kỹ năng với lộ trình bài bản'}
+              </p>
             </div>
             <Button variant="ghost" className="hidden sm:flex" onClick={() => navigate('/marketplace')}>
               Xem Marketplace <ArrowRight className="w-4 h-4 ml-2" />
@@ -302,7 +339,7 @@ const Home: React.FC = () => {
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-6">
-            {coursesLoading ? (
+            {isCoursesLoading ? (
               // Loading skeleton for courses
               [...Array(4)].map((_, i) => (
                 <Card key={i} className="border-0 shadow-none animate-pulse">
@@ -318,8 +355,8 @@ const Home: React.FC = () => {
                   </div>
                 </Card>
               ))
-            ) : courses.length > 0 ? (
-              courses.map((course) => (
+            ) : displayCourses.length > 0 ? (
+              displayCourses.map((course) => (
                 <Card key={course.id} className="group cursor-pointer border-0 shadow-none hover:shadow-lg" onClick={() => navigate(`/courses/${course.id}`)}>
                   <div className="aspect-video overflow-hidden rounded-t-xl bg-slate-200">
                     <OptimizedImage

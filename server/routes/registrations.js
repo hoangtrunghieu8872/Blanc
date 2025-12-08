@@ -262,15 +262,11 @@ router.get('/schedule', authGuard, async (req, res, next) => {
 
         const courseIds = enrollments.map(e => e.courseId).filter(Boolean);
 
-        // Get courses with schedule info within date range
+        // Get all enrolled courses (regardless of date fields)
         if (courseIds.length > 0) {
             const courses = await getCollection('courses')
                 .find({
-                    _id: { $in: courseIds },
-                    $or: [
-                        { startDate: { $exists: true } },
-                        { endDate: { $exists: true } }
-                    ]
+                    _id: { $in: courseIds }
                 })
                 .project({ title: 1, instructor: 1, startDate: 1, endDate: 1, level: 1, image: 1, duration: 1, hoursPerWeek: 1 })
                 .toArray();
@@ -278,11 +274,14 @@ router.get('/schedule', authGuard, async (req, res, next) => {
             courses.forEach(course => {
                 // Use startDate and endDate if available, otherwise use enrollment date
                 const enrollment = enrollments.find(e => e.courseId?.toString() === course._id.toString());
-                const courseStartDate = course.startDate || enrollment?.enrolledAt?.toISOString();
-                const courseEndDate = course.endDate || (course.startDate ?
-                    // If no end date but has start date, estimate based on duration or 30 days
-                    new Date(new Date(course.startDate).getTime() + 30 * 24 * 60 * 60 * 1000).toISOString()
-                    : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString());
+                const enrolledAt = enrollment?.enrolledAt || new Date();
+
+                // Course start: use startDate or enrollment date
+                const courseStartDate = course.startDate || enrolledAt.toISOString?.() || enrolledAt;
+
+                // Course end: use endDate, or estimate 60 days from start for courses without end date
+                const courseEndDate = course.endDate ||
+                    new Date(new Date(courseStartDate).getTime() + 60 * 24 * 60 * 60 * 1000).toISOString();
 
                 // Check if course falls within date range
                 const start = new Date(courseStartDate);
@@ -292,7 +291,7 @@ router.get('/schedule', authGuard, async (req, res, next) => {
                         id: course._id.toString(),
                         title: `📚 ${course.title}`,
                         organizer: course.instructor,
-                        dateStart: courseStartDate,
+                        dateStart: typeof courseStartDate === 'string' ? courseStartDate : courseStartDate.toISOString(),
                         deadline: courseEndDate,
                         status: 'OPEN',
                         tags: [course.level, course.duration || '', course.hoursPerWeek ? `${course.hoursPerWeek}h/tuần` : ''].filter(Boolean),

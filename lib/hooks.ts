@@ -659,3 +659,93 @@ export function useEnrolledCourses(options: UseEnrolledCoursesOptions = {}) {
     unenrollCourse
   };
 }
+
+// ============ RECOMMENDED CONTENT HOOK (for Homepage) ============
+
+interface RecommendedContentResponse {
+  success: boolean;
+  contests: Contest[];
+  courses: Course[];
+  meta: {
+    personalized: boolean;
+    cached: boolean;
+    cacheTTL: string;
+  };
+}
+
+interface UseRecommendedContentOptions {
+  contestLimit?: number;
+  courseLimit?: number;
+  autoFetch?: boolean;
+}
+
+/**
+ * Hook to get personalized contest and course recommendations
+ * Based on user's profile, skills, and interests
+ * Falls back to regular contests/courses if not logged in or API fails
+ */
+export function useRecommendedContent(options: UseRecommendedContentOptions = {}) {
+  const { contestLimit = 3, courseLimit = 4, autoFetch = true } = options;
+
+  const [contests, setContests] = useState<Contest[]>([]);
+  const [courses, setCourses] = useState<Course[]>([]);
+  const [isLoading, setIsLoading] = useState(autoFetch);
+  const [error, setError] = useState<string | null>(null);
+  const [isPersonalized, setIsPersonalized] = useState(false);
+  const fetchedRef = useRef(false);
+
+  const fetchRecommendations = useCallback(async () => {
+    // Check if user is logged in
+    const token = localStorage.getItem('auth_token');
+    if (!token) {
+      setIsPersonalized(false);
+      setIsLoading(false);
+      return { contests: [], courses: [], isPersonalized: false };
+    }
+
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const params = new URLSearchParams({
+        contestLimit: contestLimit.toString(),
+        courseLimit: courseLimit.toString()
+      });
+
+      const data = await api.get<RecommendedContentResponse>(
+        `/matching/content-recommendations?${params}`
+      );
+
+      setContests(data.contests);
+      setCourses(data.courses);
+      setIsPersonalized(data.meta?.personalized || false);
+
+      return { contests: data.contests, courses: data.courses, isPersonalized: true };
+    } catch (err) {
+      // Silently fail and let fallback logic handle it
+      console.warn('Failed to fetch recommendations, will use fallback:', err);
+      setError(err instanceof Error ? err.message : 'Không thể tải gợi ý');
+      setIsPersonalized(false);
+      return { contests: [], courses: [], isPersonalized: false };
+    } finally {
+      setIsLoading(false);
+    }
+  }, [contestLimit, courseLimit]);
+
+  useEffect(() => {
+    if (autoFetch && !fetchedRef.current) {
+      fetchedRef.current = true;
+      fetchRecommendations();
+    }
+  }, [autoFetch, fetchRecommendations]);
+
+  return {
+    contests,
+    courses,
+    isLoading,
+    error,
+    isPersonalized,
+    refetch: fetchRecommendations,
+    hasRecommendations: contests.length > 0 || courses.length > 0
+  };
+}

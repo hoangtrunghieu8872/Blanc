@@ -64,7 +64,7 @@ interface PublicProfile {
 }
 
 const UserProfile: React.FC = () => {
-    const { userId } = useParams<{ userId: string }>();
+    const { id: userId } = useParams<{ id: string }>();
     const navigate = useNavigate();
     const [profile, setProfile] = useState<PublicProfile | null>(null);
     const [isLoading, setIsLoading] = useState(true);

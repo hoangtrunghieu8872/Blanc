@@ -1,3 +1,4 @@
+/* stylelint-disable at-rule-no-unknown */
 @import "tailwindcss";
 @config "./tailwind.config.js";
 
@@ -86,4 +87,65 @@ body {
 
 .animate-pulse {
     animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* Slide in from right for toast */
+@keyframes slide-in-right {
+    from {
+        opacity: 0;
+        transform: translateX(100%);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+.animate-slide-in-right {
+    animation: slide-in-right 0.3s ease-out;
+}
+
+/* Fullscreen transition */
+@keyframes expand-fullscreen {
+    from {
+        opacity: 0.8;
+        transform: scale(0.95);
+    }
+
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+@keyframes collapse-fullscreen {
+    from {
+        opacity: 0.8;
+        transform: scale(1.02);
+    }
+
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+.animate-expand-fullscreen {
+    animation: expand-fullscreen 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.animate-collapse-fullscreen {
+    animation: collapse-fullscreen 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Smooth fullscreen container */
+.fullscreen-container {
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.fullscreen-active {
+    position: fixed !important;
+    inset: 0 !important;
+    z-index: 50 !important;
 }

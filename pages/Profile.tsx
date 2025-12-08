@@ -104,7 +104,11 @@ const Profile: React.FC = () => {
 
    // Handle calendar event click
    const handleEventClick = (event: ScheduleEvent) => {
-      navigate(`/contests/${event.id}`);
+      if (event.type === 'course') {
+         navigate(`/courses/${event.id}`);
+      } else {
+         navigate(`/contests/${event.id}`);
+      }
    };
 
    // Handle unenroll with confirmation

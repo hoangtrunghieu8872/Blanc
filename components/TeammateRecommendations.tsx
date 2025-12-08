@@ -3,7 +3,8 @@ import { useNavigate, Link } from 'react-router-dom';
 import {
     Users, Sparkles, RefreshCw, Loader2, ChevronRight,
     MapPin, Clock, Star, Zap, AlertCircle, CheckCircle2,
-    MessageCircle, UserPlus, Target, TrendingUp
+    MessageCircle, UserPlus, Target, TrendingUp, X, Eye,
+    Award, Globe, Code2, Calendar
 } from 'lucide-react';
 import { Button, Card, Badge } from './ui/Common';
 import { api } from '../lib/api';
@@ -147,7 +148,7 @@ const ExperienceBadge: React.FC<{ level: string }> = ({ level }) => {
 };
 
 // ============================================================================
-// TEAMMATE CARD COMPONENT
+// TEAMMATE CARD COMPONENT (Compact Version for Horizontal Layout)
 // ============================================================================
 
 const TeammateCard: React.FC<{
@@ -155,8 +156,147 @@ const TeammateCard: React.FC<{
     index: number;
     onViewProfile?: (id: string) => void;
     onInvite?: (id: string) => void;
-}> = ({ teammate, index, onViewProfile, onInvite }) => {
-    const [isExpanded, setIsExpanded] = useState(false);
+    onViewDetails?: (teammate: TeammateRecommendation) => void;
+}> = ({ teammate, index, onViewProfile, onInvite, onViewDetails }) => {
+    const roleColor = ROLE_COLORS[teammate.profile.primaryRole] || 'bg-gray-50 text-gray-700 border-gray-200';
+
+    const getInitials = (name: string) => {
+        return name
+            .split(' ')
+            .map(word => word[0])
+            .join('')
+            .toUpperCase()
+            .slice(0, 2);
+    };
+
+    const getScoreColor = (s: number) => {
+        if (s >= 80) return 'text-green-600 bg-green-50 border-green-300';
+        if (s >= 65) return 'text-blue-600 bg-blue-50 border-blue-300';
+        if (s >= 50) return 'text-amber-600 bg-amber-50 border-amber-300';
+        return 'text-slate-600 bg-slate-50 border-slate-300';
+    };
+
+    return (
+        <div className="shrink-0 w-56 bg-white rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition-all duration-200 overflow-hidden group">
+            {/* Rank Badge - Top corner */}
+            <div className="relative">
+                <div className="absolute top-2 left-2 z-10 w-6 h-6 rounded-full bg-primary-500 text-white flex items-center justify-center text-xs font-bold shadow-sm">
+                    {index + 1}
+                </div>
+
+                {/* Score Badge - Top right */}
+                <div className={`absolute top-2 right-2 z-10 px-2 py-0.5 rounded-full text-xs font-bold border ${getScoreColor(teammate.matchScore)}`}>
+                    {teammate.matchScore}%
+                </div>
+
+                {/* Avatar Section */}
+                <div className="pt-10 pb-3 px-4 bg-linear-to-b from-primary-50 to-white">
+                    <Link
+                        to={`/user/${teammate.id}`}
+                        className="block w-16 h-16 mx-auto rounded-full overflow-hidden bg-linear-to-br from-primary-500 to-primary-700 ring-3 ring-white shadow-lg hover:scale-105 transition-transform"
+                    >
+                        {teammate.avatar ? (
+                            <img src={teammate.avatar} alt={teammate.name} className="w-full h-full object-cover" />
+                        ) : (
+                            <div className="w-full h-full flex items-center justify-center text-white font-bold text-lg">
+                                {getInitials(teammate.name)}
+                            </div>
+                        )}
+                    </Link>
+                </div>
+            </div>
+
+            {/* Info Section */}
+            <div className="px-4 pb-4">
+                {/* Name */}
+                <Link
+                    to={`/user/${teammate.id}`}
+                    className="block text-center font-semibold text-slate-900 truncate hover:text-primary-600 transition-colors text-sm"
+                    title={teammate.name}
+                >
+                    {teammate.name}
+                </Link>
+
+                {/* Role Badge */}
+                <div className="flex justify-center mt-2">
+                    <Badge className={`text-xs ${roleColor}`}>
+                        {teammate.profile.primaryRole || 'Chưa xác định'}
+                    </Badge>
+                </div>
+
+                {/* Quick Stats */}
+                <div className="mt-3 space-y-1.5 text-xs text-slate-600">
+                    {teammate.profile.location && (
+                        <div className="flex items-center gap-1.5">
+                            <MapPin className="w-3 h-3 text-slate-400 shrink-0" />
+                            <span className="truncate">{teammate.profile.location}</span>
+                        </div>
+                    )}
+                    {teammate.profile.experienceLevel && (
+                        <div className="flex items-center gap-1.5">
+                            <Star className="w-3 h-3 text-amber-500 shrink-0" />
+                            <span className="truncate capitalize">
+                                {teammate.profile.experienceLevel === 'beginner' ? 'Mới bắt đầu' :
+                                    teammate.profile.experienceLevel === 'intermediate' ? 'Có kinh nghiệm' :
+                                        teammate.profile.experienceLevel === 'advanced' ? 'Thành thạo' : 'Chuyên gia'}
+                            </span>
+                        </div>
+                    )}
+                </div>
+
+                {/* Top Skills - Show only 2 */}
+                <div className="mt-3 flex flex-wrap gap-1 justify-center">
+                    {teammate.profile.skills.slice(0, 2).map(skill => (
+                        <span
+                            key={skill}
+                            className="inline-flex items-center px-2 py-0.5 rounded-full text-xs bg-slate-100 text-slate-600 border border-slate-200"
+                        >
+                            {skill}
+                        </span>
+                    ))}
+                    {teammate.profile.skills.length > 2 && (
+                        <span className="text-xs text-slate-400">
+                            +{teammate.profile.skills.length - 2}
+                        </span>
+                    )}
+                </div>
+
+                {/* Action Buttons */}
+                <div className="mt-4 flex gap-2">
+                    <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => onViewDetails?.(teammate)}
+                        className="flex-1 text-xs py-1.5"
+                    >
+                        <Eye className="w-3 h-3 mr-1" />
+                        Chi tiết
+                    </Button>
+                    <Button
+                        size="sm"
+                        onClick={() => onInvite?.(teammate.id)}
+                        className="flex-1 text-xs py-1.5"
+                    >
+                        <UserPlus className="w-3 h-3 mr-1" />
+                        Mời
+                    </Button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+// ============================================================================
+// DETAIL MODAL COMPONENT
+// ============================================================================
+
+const TeammateDetailModal: React.FC<{
+    teammate: TeammateRecommendation | null;
+    onClose: () => void;
+    onViewProfile?: (id: string) => void;
+    onInvite?: (id: string) => void;
+}> = ({ teammate, onClose, onViewProfile, onInvite }) => {
+    if (!teammate) return null;
 
     const roleColor = ROLE_COLORS[teammate.profile.primaryRole] || 'bg-gray-50 text-gray-700 border-gray-200';
 
@@ -169,135 +309,206 @@ const TeammateCard: React.FC<{
             .slice(0, 2);
     };
 
+    const getScoreColor = (s: number) => {
+        if (s >= 80) return 'text-green-600 bg-green-50 border-green-200';
+        if (s >= 65) return 'text-blue-600 bg-blue-50 border-blue-200';
+        if (s >= 50) return 'text-amber-600 bg-amber-50 border-amber-200';
+        return 'text-slate-600 bg-slate-50 border-slate-200';
+    };
+
+    const getScoreLabel = (s: number) => {
+        if (s >= 80) return 'Xuất sắc';
+        if (s >= 65) return 'Rất phù hợp';
+        if (s >= 50) return 'Khá phù hợp';
+        return 'Tiềm năng';
+    };
+
     return (
-        <Card className="p-4 hover:shadow-lg transition-all duration-200 border-l-4 border-l-primary-500">
-            {/* Header */}
-            <div className="flex items-start gap-3 mb-3">
-                {/* Rank Badge */}
-                <div className="shrink-0 w-6 h-6 rounded-full bg-primary-100 text-primary-700 flex items-center justify-center text-xs font-bold">
-                    {index + 1}
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            {/* Backdrop */}
+            <div
+                className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+                onClick={onClose}
+            />
+
+            {/* Modal */}
+            <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-hidden animate-in zoom-in-95 duration-200">
+                {/* Header */}
+                <div className="relative bg-linear-to-br from-primary-500 to-primary-700 px-6 pt-6 pb-16">
+                    <button
+                        onClick={onClose}
+                        className="absolute top-4 right-4 p-1.5 rounded-full bg-white/20 hover:bg-white/30 text-white transition-colors"
+                        title="Đóng"
+                    >
+                        <X className="w-5 h-5" />
+                    </button>
+
+                    {/* Score Badge */}
+                    <div className="absolute top-4 left-4">
+                        <div className={`px-3 py-1 rounded-full text-sm font-bold border-2 ${getScoreColor(teammate.matchScore)}`}>
+                            {teammate.matchScore}% - {getScoreLabel(teammate.matchScore)}
+                        </div>
+                    </div>
                 </div>
 
-                {/* Avatar - Clickable to profile */}
-                <Link
-                    to={`/user/${teammate.id}`}
-                    className="shrink-0 w-12 h-12 rounded-full overflow-hidden bg-linear-to-br from-primary-500 to-primary-700 hover:ring-2 hover:ring-primary-300 transition-all"
-                    title={`Xem hồ sơ của ${teammate.name}`}
-                >
-                    {teammate.avatar ? (
-                        <img src={teammate.avatar} alt={teammate.name} className="w-full h-full object-cover" />
-                    ) : (
-                        <div className="w-full h-full flex items-center justify-center text-white font-bold">
-                            {getInitials(teammate.name)}
-                        </div>
-                    )}
-                </Link>
-
-                {/* Info */}
-                <div className="grow min-w-0">
+                {/* Avatar - overlapping header */}
+                <div className="relative -mt-12 flex justify-center">
                     <Link
                         to={`/user/${teammate.id}`}
-                        className="font-semibold text-slate-900 truncate hover:text-primary-600 transition-colors block"
+                        onClick={onClose}
+                        className="w-24 h-24 rounded-full overflow-hidden bg-linear-to-br from-primary-400 to-primary-600 ring-4 ring-white shadow-xl hover:scale-105 transition-transform"
                     >
-                        {teammate.name}
+                        {teammate.avatar ? (
+                            <img src={teammate.avatar} alt={teammate.name} className="w-full h-full object-cover" />
+                        ) : (
+                            <div className="w-full h-full flex items-center justify-center text-white font-bold text-2xl">
+                                {getInitials(teammate.name)}
+                            </div>
+                        )}
                     </Link>
-                    <div className="flex items-center gap-2 mt-1">
-                        <Badge className={`text-xs ${roleColor}`}>
-                            {teammate.profile.primaryRole || 'Chưa xác định'}
-                        </Badge>
-                        {teammate.profile.openToMentor && (
-                            <Badge className="bg-purple-50 text-purple-700 text-xs">
-                                🎓 Mentor
+                </div>
+
+                {/* Content */}
+                <div className="px-6 pt-4 pb-6 overflow-y-auto max-h-[calc(90vh-280px)]">
+                    {/* Name & Role */}
+                    <div className="text-center mb-6">
+                        <Link
+                            to={`/user/${teammate.id}`}
+                            onClick={onClose}
+                            className="text-xl font-bold text-slate-900 hover:text-primary-600 transition-colors"
+                        >
+                            {teammate.name}
+                        </Link>
+                        <div className="flex justify-center gap-2 mt-2">
+                            <Badge className={`${roleColor}`}>
+                                {teammate.profile.primaryRole || 'Chưa xác định'}
                             </Badge>
+                            {teammate.profile.openToMentor && (
+                                <Badge className="bg-purple-50 text-purple-700 border-purple-200">
+                                    🎓 Mentor
+                                </Badge>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* Info Grid */}
+                    <div className="grid grid-cols-2 gap-3 mb-6">
+                        {teammate.profile.location && (
+                            <div className="flex items-center gap-2 p-2.5 bg-slate-50 rounded-lg">
+                                <MapPin className="w-4 h-4 text-primary-500" />
+                                <div>
+                                    <p className="text-xs text-slate-500">Địa điểm</p>
+                                    <p className="text-sm font-medium text-slate-700 truncate">{teammate.profile.location}</p>
+                                </div>
+                            </div>
+                        )}
+                        {teammate.profile.experienceLevel && (
+                            <div className="flex items-center gap-2 p-2.5 bg-slate-50 rounded-lg">
+                                <Award className="w-4 h-4 text-amber-500" />
+                                <div>
+                                    <p className="text-xs text-slate-500">Kinh nghiệm</p>
+                                    <p className="text-sm font-medium text-slate-700 capitalize">
+                                        {teammate.profile.experienceLevel === 'beginner' ? 'Mới bắt đầu' :
+                                            teammate.profile.experienceLevel === 'intermediate' ? 'Có kinh nghiệm' :
+                                                teammate.profile.experienceLevel === 'advanced' ? 'Thành thạo' : 'Chuyên gia'}
+                                    </p>
+                                </div>
+                            </div>
+                        )}
+                        {teammate.profile.availability && (
+                            <div className="flex items-center gap-2 p-2.5 bg-slate-50 rounded-lg">
+                                <Calendar className="w-4 h-4 text-green-500" />
+                                <div>
+                                    <p className="text-xs text-slate-500">Thời gian rảnh</p>
+                                    <p className="text-sm font-medium text-slate-700 truncate">{teammate.profile.availability.split(',')[0]}</p>
+                                </div>
+                            </div>
+                        )}
+                        {teammate.profile.timeZone && (
+                            <div className="flex items-center gap-2 p-2.5 bg-slate-50 rounded-lg">
+                                <Globe className="w-4 h-4 text-blue-500" />
+                                <div>
+                                    <p className="text-xs text-slate-500">Múi giờ</p>
+                                    <p className="text-sm font-medium text-slate-700 truncate">{teammate.profile.timeZone}</p>
+                                </div>
+                            </div>
                         )}
                     </div>
-                </div>
 
-                {/* Score */}
-                <ScoreRing score={teammate.matchScore} size="sm" />
-            </div>
-
-            {/* Quick Info */}
-            <div className="grid grid-cols-2 gap-2 mb-3 text-xs text-slate-600">
-                {teammate.profile.location && (
-                    <div className="flex items-center gap-1">
-                        <MapPin className="w-3 h-3 text-slate-400" />
-                        <span className="truncate">{teammate.profile.location}</span>
-                    </div>
-                )}
-                {teammate.profile.experienceLevel && (
-                    <div className="flex items-center gap-1">
-                        <TrendingUp className="w-3 h-3 text-slate-400" />
-                        <ExperienceBadge level={teammate.profile.experienceLevel} />
-                    </div>
-                )}
-                {teammate.profile.availability && (
-                    <div className="flex items-center gap-1 col-span-2">
-                        <Clock className="w-3 h-3 text-slate-400" />
-                        <span className="truncate">{teammate.profile.availability.split(',')[0]}</span>
-                    </div>
-                )}
-            </div>
-
-            {/* Skills Preview */}
-            <div className="mb-3">
-                <p className="text-xs font-medium text-slate-500 mb-1.5">Kỹ năng nổi bật:</p>
-                <div className="flex flex-wrap gap-1">
-                    {teammate.profile.skills.slice(0, 4).map(skill => (
-                        <SkillTag key={skill} skill={skill} />
-                    ))}
-                    {teammate.profile.skills.length > 4 && (
-                        <span className="text-xs text-slate-400">
-                            +{teammate.profile.skills.length - 4}
-                        </span>
-                    )}
-                </div>
-            </div>
-
-            {/* Expandable Details */}
-            {isExpanded && (
-                <div className="pt-3 border-t border-slate-100 space-y-3 animate-in slide-in-from-top-2">
                     {/* Score Breakdown */}
-                    <div>
-                        <p className="text-xs font-medium text-slate-500 mb-2">Điểm phù hợp chi tiết:</p>
-                        <div className="grid grid-cols-2 gap-2 text-xs">
-                            <div className="flex justify-between">
-                                <span className="text-slate-600">Vai trò đa dạng</span>
-                                <span className="font-medium">{teammate.scoreBreakdown.roleDiversity}/25</span>
-                            </div>
-                            <div className="flex justify-between">
-                                <span className="text-slate-600">Kỹ năng bổ sung</span>
-                                <span className="font-medium">{teammate.scoreBreakdown.skillComplementarity}/20</span>
-                            </div>
-                            <div className="flex justify-between">
-                                <span className="text-slate-600">Lịch phù hợp</span>
-                                <span className="font-medium">{teammate.scoreBreakdown.availability}/15</span>
-                            </div>
-                            <div className="flex justify-between">
-                                <span className="text-slate-600">Kinh nghiệm</span>
-                                <span className="font-medium">{teammate.scoreBreakdown.experienceLevel}/10</span>
-                            </div>
+                    <div className="mb-6">
+                        <h4 className="text-sm font-semibold text-slate-900 mb-3 flex items-center gap-2">
+                            <Zap className="w-4 h-4 text-primary-500" />
+                            Điểm phù hợp chi tiết
+                        </h4>
+                        <div className="grid grid-cols-2 gap-2">
+                            {[
+                                { label: 'Vai trò đa dạng', value: teammate.scoreBreakdown.roleDiversity, max: 25 },
+                                { label: 'Kỹ năng bổ sung', value: teammate.scoreBreakdown.skillComplementarity, max: 20 },
+                                { label: 'Lịch phù hợp', value: teammate.scoreBreakdown.availability, max: 15 },
+                                { label: 'Kinh nghiệm', value: teammate.scoreBreakdown.experienceLevel, max: 10 },
+                                { label: 'Vị trí/Múi giờ', value: teammate.scoreBreakdown.locationTimezone, max: 10 },
+                                { label: 'Phong cách', value: teammate.scoreBreakdown.collaborationStyle, max: 10 },
+                            ].map(item => (
+                                <div key={item.label} className="flex items-center justify-between p-2 bg-slate-50 rounded-lg">
+                                    <span className="text-xs text-slate-600">{item.label}</span>
+                                    <span className="text-xs font-bold text-primary-600">{item.value}/{item.max}</span>
+                                </div>
+                            ))}
                         </div>
                     </div>
 
-                    {/* Two-way Match Info */}
+                    {/* Two-way Match */}
                     {teammate.matchDetails && (
-                        <div className="bg-blue-50 rounded-lg p-2">
-                            <p className="text-xs font-medium text-blue-700 mb-1">Ghép đội hai chiều:</p>
-                            <div className="flex items-center gap-4 text-xs text-blue-600">
-                                <span>Bạn → Họ: {Math.round(teammate.matchDetails.userToCandidate)}%</span>
-                                <span>Họ → Bạn: {Math.round(teammate.matchDetails.candidateToUser)}%</span>
+                        <div className="mb-6 p-3 bg-blue-50 border border-blue-200 rounded-xl">
+                            <h4 className="text-sm font-semibold text-blue-700 mb-2 flex items-center gap-2">
+                                <Users className="w-4 h-4" />
+                                Ghép đội hai chiều
+                            </h4>
+                            <div className="flex items-center justify-around text-sm">
+                                <div className="text-center">
+                                    <p className="text-blue-600 font-bold">{Math.round(teammate.matchDetails.userToCandidate)}%</p>
+                                    <p className="text-xs text-blue-500">Bạn → Họ</p>
+                                </div>
+                                <ChevronRight className="w-4 h-4 text-blue-400" />
+                                <div className="text-center">
+                                    <p className="text-blue-600 font-bold">{Math.round(teammate.matchDetails.candidateToUser)}%</p>
+                                    <p className="text-xs text-blue-500">Họ → Bạn</p>
+                                </div>
                             </div>
                         </div>
                     )}
+
+                    {/* Skills */}
+                    <div className="mb-6">
+                        <h4 className="text-sm font-semibold text-slate-900 mb-3 flex items-center gap-2">
+                            <Code2 className="w-4 h-4 text-primary-500" />
+                            Kỹ năng
+                        </h4>
+                        <div className="flex flex-wrap gap-1.5">
+                            {teammate.profile.skills.map(skill => (
+                                <span
+                                    key={skill}
+                                    className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-primary-50 text-primary-700 border border-primary-200"
+                                >
+                                    {skill}
+                                </span>
+                            ))}
+                        </div>
+                    </div>
 
                     {/* Tech Stack */}
                     {teammate.profile.techStack.length > 0 && (
-                        <div>
-                            <p className="text-xs font-medium text-slate-500 mb-1.5">Tech Stack:</p>
-                            <div className="flex flex-wrap gap-1">
-                                {teammate.profile.techStack.slice(0, 6).map(tech => (
-                                    <SkillTag key={tech} skill={tech} />
+                        <div className="mb-6">
+                            <h4 className="text-sm font-semibold text-slate-900 mb-3">Tech Stack</h4>
+                            <div className="flex flex-wrap gap-1.5">
+                                {teammate.profile.techStack.map(tech => (
+                                    <span
+                                        key={tech}
+                                        className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-600 border border-slate-200"
+                                    >
+                                        {tech}
+                                    </span>
                                 ))}
                             </div>
                         </div>
@@ -305,50 +516,53 @@ const TeammateCard: React.FC<{
 
                     {/* Languages */}
                     {teammate.profile.languages.length > 0 && (
-                        <div className="flex items-center gap-2 text-xs text-slate-600">
-                            <span className="font-medium">Ngôn ngữ:</span>
-                            <span>{teammate.profile.languages.join(', ')}</span>
+                        <div className="mb-6">
+                            <h4 className="text-sm font-semibold text-slate-900 mb-2">Ngôn ngữ giao tiếp</h4>
+                            <p className="text-sm text-slate-600">{teammate.profile.languages.join(', ')}</p>
+                        </div>
+                    )}
+
+                    {/* Secondary Roles */}
+                    {teammate.profile.secondaryRoles.length > 0 && (
+                        <div className="mb-6">
+                            <h4 className="text-sm font-semibold text-slate-900 mb-2">Vai trò phụ</h4>
+                            <div className="flex flex-wrap gap-1.5">
+                                {teammate.profile.secondaryRoles.map(role => (
+                                    <Badge key={role} className="bg-slate-100 text-slate-600 border-slate-200">
+                                        {role}
+                                    </Badge>
+                                ))}
+                            </div>
                         </div>
                     )}
                 </div>
-            )}
 
-            {/* Actions */}
-            <div className="flex items-center justify-between mt-3 pt-3 border-t border-slate-100">
-                <button
-                    type="button"
-                    onClick={() => setIsExpanded(!isExpanded)}
-                    className="text-xs text-primary-600 hover:text-primary-700 flex items-center gap-1"
-                >
-                    {isExpanded ? 'Thu gọn' : 'Xem chi tiết'}
-                    <ChevronRight className={`w-3 h-3 transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
-                </button>
-
-                <div className="flex gap-2">
-                    {onViewProfile && (
-                        <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => onViewProfile(teammate.id)}
-                            className="text-xs"
-                        >
-                            <Users className="w-3 h-3 mr-1" />
-                            Hồ sơ
-                        </Button>
-                    )}
-                    {onInvite && (
-                        <Button
-                            size="sm"
-                            onClick={() => onInvite(teammate.id)}
-                            className="text-xs"
-                        >
-                            <UserPlus className="w-3 h-3 mr-1" />
-                            Mời
-                        </Button>
-                    )}
+                {/* Footer Actions */}
+                <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 flex gap-3">
+                    <Button
+                        variant="secondary"
+                        onClick={() => {
+                            onViewProfile?.(teammate.id);
+                            onClose();
+                        }}
+                        className="flex-1"
+                    >
+                        <Users className="w-4 h-4 mr-2" />
+                        Xem hồ sơ
+                    </Button>
+                    <Button
+                        onClick={() => {
+                            onInvite?.(teammate.id);
+                            onClose();
+                        }}
+                        className="flex-1"
+                    >
+                        <UserPlus className="w-4 h-4 mr-2" />
+                        Mời vào team
+                    </Button>
                 </div>
             </div>
-        </Card>
+        </div>
     );
 };
 
@@ -375,8 +589,25 @@ const TeammateRecommendations: React.FC<TeammateRecommendationsProps> = ({
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [profileCompletion, setProfileCompletion] = useState<ProfileCompletionResponse | null>(null);
+    const [selectedTeammate, setSelectedTeammate] = useState<TeammateRecommendation | null>(null);
 
     const isLoggedIn = !!localStorage.getItem('auth_token');
+
+    const handleViewDetails = (teammate: TeammateRecommendation) => {
+        setSelectedTeammate(teammate);
+    };
+
+    const handleCloseModal = () => {
+        setSelectedTeammate(null);
+    };
+
+    const handleViewProfile = (id: string) => {
+        if (onViewProfile) {
+            onViewProfile(id);
+        } else {
+            navigate(`/user/${id}`);
+        }
+    };
 
     // Fetch recommendations
     const fetchRecommendations = useCallback(async (refresh = false) => {
@@ -569,15 +800,16 @@ const TeammateRecommendations: React.FC<TeammateRecommendationsProps> = ({
                         </p>
                     </div>
 
-                    {/* Cards Grid */}
-                    <div className="space-y-4">
+                    {/* Horizontal Cards Layout */}
+                    <div className="flex gap-4 overflow-x-auto pb-4 -mx-2 px-2 scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-slate-100">
                         {recommendations.map((teammate, index) => (
                             <TeammateCard
                                 key={teammate.id}
                                 teammate={teammate}
                                 index={index}
-                                onViewProfile={onViewProfile}
+                                onViewProfile={handleViewProfile}
                                 onInvite={onInvite}
+                                onViewDetails={handleViewDetails}
                             />
                         ))}
                     </div>
@@ -594,6 +826,14 @@ const TeammateRecommendations: React.FC<TeammateRecommendationsProps> = ({
                     </div>
                 </>
             )}
+
+            {/* Detail Modal */}
+            <TeammateDetailModal
+                teammate={selectedTeammate}
+                onClose={handleCloseModal}
+                onViewProfile={handleViewProfile}
+                onInvite={onInvite}
+            />
         </Card>
     );
 };

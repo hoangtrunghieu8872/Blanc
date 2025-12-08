@@ -100,3 +100,54 @@ export const analyzeAuditLogs = async (logs: any[]): Promise<string> => {
     return "Failed to analyze logs.";
   }
 };
+
+// Report AI Functions
+export const generateReportContent = async (prompt: string, context: string): Promise<string> => {
+  if (!apiKey) return "Cần API Key để sử dụng tính năng AI.";
+
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: `Ngữ cảnh: ${context}\n\nNhiệm vụ: ${prompt}\n\nVui lòng viết một phần chuyên nghiệp cho báo cáo dựa trên thông tin trên. Trả lời bằng tiếng Việt.`,
+    });
+    return response.text || "Không thể tạo nội dung.";
+  } catch (error) {
+    console.error("AI Error:", error);
+    return "Lỗi khi tạo nội dung. Vui lòng thử lại.";
+  }
+};
+
+export const generateEmailDraft = async (reportContent: string, tone: string): Promise<string> => {
+  if (!apiKey) return "Cần API Key để sử dụng tính năng AI.";
+
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: `Nội dung báo cáo:\n${reportContent}\n\nNhiệm vụ: Soạn email chuyên nghiệp tóm tắt báo cáo này. Giọng điệu: ${tone}. Giữ ngắn gọn và có tính hành động. Trả lời bằng tiếng Việt.`,
+    });
+    return response.text || "";
+  } catch (error) {
+    console.error("AI Error:", error);
+    return "Lỗi khi tạo email.";
+  }
+};
+
+export const chatWithReportAgent = async (history: { role: string, parts: { text: string }[] }[], message: string): Promise<string> => {
+  if (!apiKey) return "Tôi chỉ có thể hỗ trợ nếu bạn cung cấp API Key hợp lệ.";
+
+  try {
+    const chat = ai.chats.create({
+      model: 'gemini-2.5-flash',
+      history: history as any,
+      config: {
+        systemInstruction: "Bạn là trợ lý AI hữu ích, chuyên nghiệp để viết báo cáo. Hãy ngắn gọn và chính xác. Trả lời bằng tiếng Việt."
+      }
+    });
+
+    const result = await chat.sendMessage({ message });
+    return result.text || "";
+  } catch (error) {
+    console.error("Chat Error:", error);
+    return "Tôi đang gặp sự cố kết nối. Vui lòng thử lại.";
+  }
+};

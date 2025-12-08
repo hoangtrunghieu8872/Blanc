@@ -288,6 +288,47 @@ export interface CourseEnrollment {
 
 export type AuthStatus = 'authenticated' | 'unauthenticated' | 'loading';
 
+// Report types for AI Report Generator
+export interface ReportTemplate {
+  id: string;
+  title: string;
+  description: string;
+  category: string;
+  icon: string;
+}
+
+export interface Report {
+  id: string;
+  title: string;
+  template: string;
+  status: 'Draft' | 'Sent' | 'Ready';
+  lastEdited: string;
+  content: string;
+  userId?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface ReportsResponse {
+  reports: Report[];
+  total: number;
+  hasMore: boolean;
+}
+
+export interface ChatMessage {
+  id: string;
+  role: 'user' | 'model';
+  text: string;
+  timestamp: Date;
+}
+
+export interface EmailDraft {
+  to: string;
+  subject: string;
+  body: string;
+  tone: 'Formal' | 'Neutral' | 'Friendly';
+}
+
 // Review for contests, courses, documents
 export interface Review {
   id: string;

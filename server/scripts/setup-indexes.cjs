@@ -322,6 +322,30 @@ async function setupIndexes() {
             { key: { comment: 'text' }, name: 'idx_review_search' },
         ], 'reviews');
 
+        // ============ REPORTS COLLECTION ============
+        console.log('📦 Reports collection...');
+        const reports = db.collection('reports');
+
+        await safeCreateIndexes(reports, [
+            // User's reports (primary query - sorted by newest)
+            { key: { userId: 1, updatedAt: -1 }, name: 'idx_user_reports' },
+
+            // User + Status filter (for filtering by draft/sent/ready)
+            { key: { userId: 1, status: 1, updatedAt: -1 }, name: 'idx_user_status' },
+
+            // User + Template filter (for filtering by template type)
+            { key: { userId: 1, template: 1, updatedAt: -1 }, name: 'idx_user_template' },
+
+            // Text search on title and content
+            { key: { title: 'text', content: 'text' }, name: 'idx_report_search' },
+
+            // Created date for sorting
+            { key: { createdAt: -1 }, name: 'idx_created' },
+
+            // Updated date for sorting (most common)
+            { key: { updatedAt: -1 }, name: 'idx_updated' },
+        ], 'reports');
+
         // ============ SUMMARY ============
         console.log('\n' + '='.repeat(50));
         console.log('✅ All indexes created successfully!');
@@ -331,7 +355,7 @@ async function setupIndexes() {
         console.log('\n📊 Index Summary:');
         const collections = ['users', 'contests', 'courses', 'registrations', 'team_posts',
             'notifications', 'audit_logs', 'login_attempts', 'blocked_ips',
-            'user_streaks', 'course_enrollments', 'reviews'];
+            'user_streaks', 'course_enrollments', 'reviews', 'reports'];
 
         for (const collName of collections) {
             const coll = db.collection(collName);

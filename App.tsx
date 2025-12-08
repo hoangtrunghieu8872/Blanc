@@ -1,144 +1,161 @@
-import React, { useState, useEffect } from 'react';
-import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
+import React, { useState, useEffect, useCallback } from 'react';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { Toaster } from 'react-hot-toast';
+
+// Layout
 import Layout from './components/Layout';
-import Home from './pages/Home';
+
+// Components
 import ChatBubble from './components/ChatBubble';
+
+// Pages
+import Home from './pages/Home';
+import Auth from './pages/Auth';
 import { ContestList, ContestDetail } from './pages/Contests';
 import { Marketplace, CourseDetail } from './pages/Marketplace';
 import Community from './pages/Community';
 import Profile from './pages/Profile';
 import UserProfile from './pages/UserProfile';
 import MyTeamPosts from './pages/MyTeamPosts';
+import Reports from './pages/Reports';
+import ReportTemplates from './pages/ReportTemplates';
+import ForgotPassword from './pages/ForgotPassword';
 import Terms from './pages/Terms';
 import Privacy from './pages/Privacy';
-import Auth from './pages/Auth';
-import ForgotPassword from './pages/ForgotPassword';
-import MaintenancePage from './components/MaintenancePage';
+
+// Types
 import { User } from './types';
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:4000/api';
-
-// Helper to get user from localStorage
-function getStoredUser(): User | null {
-  try {
-    const token = localStorage.getItem('auth_token');
-    const userStr = localStorage.getItem('user');
-    if (token && userStr) {
-      return JSON.parse(userStr);
-    }
-  } catch {
-    // Invalid data, clear it
-    localStorage.removeItem('auth_token');
-    localStorage.removeItem('user');
-  }
-  return null;
+// Auth modal event listener type
+interface AuthModalDetail {
+    mode: 'login' | 'register';
 }
 
 const App: React.FC = () => {
-  // Auth state from localStorage
-  const [user, setUser] = useState<User | null>(getStoredUser);
+    const [user, setUser] = useState<User | null>(null);
+    const [isLoading, setIsLoading] = useState(true);
 
-  // Maintenance mode state
-  const [isMaintenanceMode, setIsMaintenanceMode] = useState(false);
-  const [siteName, setSiteName] = useState('Blanc');
-  const [isCheckingMaintenance, setIsCheckingMaintenance] = useState(true);
+    // Initialize user from localStorage
+    useEffect(() => {
+        const initAuth = () => {
+            try {
+                const token = localStorage.getItem('auth_token');
+                const userStr = localStorage.getItem('user');
 
-  // Check maintenance mode on mount
-  useEffect(() => {
-    const checkMaintenanceMode = async () => {
-      try {
-        const response = await fetch(`${API_BASE}/admin/status`);
-        if (response.ok) {
-          const data = await response.json();
-          setIsMaintenanceMode(data.maintenanceMode || false);
-          setSiteName(data.siteName || 'Blanc');
-        }
-      } catch (error) {
-        console.error('Failed to check maintenance status:', error);
-        // If API fails, assume not in maintenance mode
-        setIsMaintenanceMode(false);
-      } finally {
-        setIsCheckingMaintenance(false);
-      }
-    };
+                if (token && userStr) {
+                    const userData = JSON.parse(userStr);
+                    setUser(userData);
+                }
+            } catch (err) {
+                console.error('Failed to parse user data:', err);
+                localStorage.removeItem('auth_token');
+                localStorage.removeItem('user');
+            } finally {
+                setIsLoading(false);
+            }
+        };
 
-    checkMaintenanceMode();
+        initAuth();
 
-    // Check every 30 seconds for maintenance mode changes
-    const interval = setInterval(checkMaintenanceMode, 30000);
-    return () => clearInterval(interval);
-  }, []);
+        // Listen for auth changes from other components
+        const handleAuthChange = () => {
+            const userStr = localStorage.getItem('user');
+            if (userStr) {
+                try {
+                    setUser(JSON.parse(userStr));
+                } catch {
+                    setUser(null);
+                }
+            } else {
+                setUser(null);
+            }
+        };
 
-  // Listen for storage changes (login/logout from other tabs)
-  useEffect(() => {
-    const handleStorageChange = () => {
-      setUser(getStoredUser());
-    };
+        window.addEventListener('auth-change', handleAuthChange);
+        window.addEventListener('storage', handleAuthChange);
 
-    window.addEventListener('storage', handleStorageChange);
+        return () => {
+            window.removeEventListener('auth-change', handleAuthChange);
+            window.removeEventListener('storage', handleAuthChange);
+        };
+    }, []);
 
-    // Also listen for custom event from Auth component
-    window.addEventListener('auth-change', handleStorageChange);
+    // Logout handler
+    const handleLogout = useCallback(() => {
+        localStorage.removeItem('auth_token');
+        localStorage.removeItem('user');
+        setUser(null);
+        window.dispatchEvent(new Event('auth-change'));
+    }, []);
 
-    return () => {
-      window.removeEventListener('storage', handleStorageChange);
-      window.removeEventListener('auth-change', handleStorageChange);
-    };
-  }, []);
+    // Loading state
+    if (isLoading) {
+        return (
+            <div className="min-h-screen flex items-center justify-center bg-slate-50">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
+            </div>
+        );
+    }
 
-  const handleLogout = () => {
-    localStorage.removeItem('auth_token');
-    localStorage.removeItem('user');
-    setUser(null);
-    window.dispatchEvent(new Event('auth-change'));
-  };
-
-  // Show loading while checking maintenance mode
-  if (isCheckingMaintenance) {
     return (
-      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
-        <div className="w-8 h-8 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin"></div>
-      </div>
+        <BrowserRouter>
+            <Toaster
+                position="top-center"
+                toastOptions={{
+                    duration: 4000,
+                    style: {
+                        background: '#fff',
+                        color: '#1e293b',
+                        boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)',
+                        borderRadius: '12px',
+                        padding: '12px 16px',
+                    },
+                    success: {
+                        iconTheme: {
+                            primary: '#10b981',
+                            secondary: '#fff',
+                        },
+                    },
+                    error: {
+                        iconTheme: {
+                            primary: '#ef4444',
+                            secondary: '#fff',
+                        },
+                    },
+                }}
+            />
+
+            {/* Chatbot */}
+            <ChatBubble />
+
+            <Routes>
+                {/* Auth routes - no layout */}
+                <Route path="/login" element={user ? <Navigate to="/" replace /> : <Auth type="login" />} />
+                <Route path="/register" element={user ? <Navigate to="/" replace /> : <Auth type="register" />} />
+                <Route path="/forgot-password" element={<ForgotPassword />} />
+
+                {/* Main routes with layout */}
+                <Route element={<Layout user={user} onLogout={handleLogout} />}>
+                    <Route path="/" element={<Home />} />
+                    <Route path="/contests" element={<ContestList />} />
+                    <Route path="/contests/:id" element={<ContestDetail />} />
+                    <Route path="/marketplace" element={<Marketplace />} />
+                    <Route path="/courses/:id" element={<CourseDetail />} />
+                    <Route path="/community" element={<Community />} />
+                    <Route path="/reports" element={user ? <Reports /> : <Navigate to="/login" replace />} />
+                    <Route path="/reports/new" element={user ? <ReportTemplates /> : <Navigate to="/login" replace />} />
+                    <Route path="/profile" element={user ? <Profile /> : <Navigate to="/login" replace />} />
+                    <Route path="/user/:id" element={<UserProfile />} />
+                    <Route path="/my-team-posts" element={user ? <MyTeamPosts /> : <Navigate to="/login" replace />} />
+                    <Route path="/terms" element={<Terms />} />
+                    <Route path="/privacy" element={<Privacy />} />
+                </Route>
+
+                {/* Catch all - redirect to home */}
+                <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+        </BrowserRouter>
     );
-  }
-
-  // Show maintenance page if in maintenance mode (except for admin users)
-  if (isMaintenanceMode && user?.role !== 'admin') {
-    return <MaintenancePage siteName={siteName} />;
-  }
-
-  return (
-    <HashRouter>
-      <Routes>
-        <Route element={<Layout user={user} onLogout={handleLogout} />}>
-          <Route path="/" element={<Home />} />
-          <Route path="/contests" element={<ContestList />} />
-          <Route path="/contests/:id" element={<ContestDetail />} />
-          <Route path="/marketplace" element={<Marketplace />} />
-          <Route path="/courses/:id" element={<CourseDetail />} />
-          <Route path="/community" element={<Community />} />
-          <Route path="/my-team-posts" element={user ? <MyTeamPosts /> : <Navigate to="/login" />} />
-          <Route path="/profile" element={user ? <Profile /> : <Navigate to="/login" />} />
-          <Route path="/user/:userId" element={user ? <UserProfile /> : <Navigate to="/login" />} />
-        </Route>
-
-        {/* Auth routes */}
-        <Route path="/login" element={<Auth type="login" />} />
-        <Route path="/register" element={<Auth type="register" />} />
-        <Route path="/forgot-password" element={<ForgotPassword />} />
-
-        {/* Legal pages */}
-        <Route path="/terms" element={<Terms />} />
-        <Route path="/privacy" element={<Privacy />} />
-
-        {/* Admin routes (Placeholder) */}
-        <Route path="/admin" element={<div className="p-8">Admin Panel Placeholder</div>} />
-      </Routes>
-
-      {/* AI Chat Assistant - only show when logged in */}
-      {user && <ChatBubble />}
-    </HashRouter>
-  );
 };
 
 export default App;
