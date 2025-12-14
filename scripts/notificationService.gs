@@ -33,7 +33,8 @@
 const NOTIF_CONFIG = Object.freeze({
   APP_NAME: 'Blanc',
   SENDER_NAME: 'Blanc',
-  SUPPORT_EMAIL: 'dangthhfct31147@gmail.com',
+  SUPPORT_EMAIL: 'clbflife2025thptfptcantho@gmail.com',
+  SUPPORT_PHONE: '+84916007090',
   LOGO_URL: 'https://via.placeholder.com/120x40/10B981/FFFFFF?text=Blanc',
   WEBSITE_URL: 'https://blanc.com',
   PRIMARY_COLOR: '#10B981',
@@ -1563,7 +1564,8 @@ function generateEmailFooter() {
     '<p style="color:#94a3b8;font-size:11px;margin:0;">' +
     '<a href="' + NOTIF_CONFIG.WEBSITE_URL + '" style="color:#64748b;text-decoration:none;">Website</a> • ' +
     '<a href="' + NOTIF_CONFIG.WEBSITE_URL + '/profile?tab=settings" style="color:#64748b;text-decoration:none;">Cài đặt thông báo</a> • ' +
-    '<a href="mailto:' + NOTIF_CONFIG.SUPPORT_EMAIL + '" style="color:#64748b;text-decoration:none;">Liên hệ</a>' +
+    '<a href="mailto:' + NOTIF_CONFIG.SUPPORT_EMAIL + '" style="color:#64748b;text-decoration:none;">Email: ' + NOTIF_CONFIG.SUPPORT_EMAIL + '</a> • ' +
+    '<a href="tel:' + NOTIF_CONFIG.SUPPORT_PHONE + '" style="color:#64748b;text-decoration:none;">Tel: ' + NOTIF_CONFIG.SUPPORT_PHONE + '</a>' +
     '</p></td></tr>';
 }
 

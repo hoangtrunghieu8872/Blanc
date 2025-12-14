@@ -21,26 +21,21 @@ router.get('/', async (req, res, next) => {
         await connectToDatabase();
 
         // Count documents in parallel for better performance
-        const [usersCount, contestsCount, coursesCount, avgRating] = await Promise.all([
+        const [usersCount, contestsCount, coursesCount] = await Promise.all([
             getCollection('users').countDocuments(),
             getCollection('contests').countDocuments(),
             getCollection('courses').countDocuments(),
-            getCollection('courses').aggregate([
-                { $group: { _id: null, avgRating: { $avg: '$rating' } } }
-            ]).toArray(),
         ]);
 
         const stats = {
             users: usersCount,
             contests: contestsCount,
             courses: coursesCount,
-            avgRating: avgRating[0]?.avgRating?.toFixed(1) || '0.0',
             // Format cho hiển thị
             formatted: {
                 users: formatNumber(usersCount),
                 contests: formatNumber(contestsCount),
                 courses: formatNumber(coursesCount),
-                avgRating: `${avgRating[0]?.avgRating?.toFixed(1) || '0.0'}/5`,
             },
         };
 

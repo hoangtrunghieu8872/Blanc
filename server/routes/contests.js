@@ -5,6 +5,110 @@ import { authGuard, requireRole } from '../middleware/auth.js';
 
 const router = Router();
 
+// Category normalization (map legacy values and new slugs to friendly labels)
+const CATEGORY_MAP = {
+  'it': 'IT & Tech',
+  'it & tech': 'IT & Tech',
+  'it & tech (hackathon, coding, ai/ml)': 'IT & Tech',
+  'hackathon': 'IT & Tech',
+  'coding': 'IT & Tech',
+  'coding contest': 'IT & Tech',
+  'ai/ml': 'IT & Tech',
+  'ai': 'IT & Tech',
+  'ml': 'IT & Tech',
+  'programming': 'IT & Tech',
+  'data': 'Data & Analytics',
+  'data & analytics': 'Data & Analytics',
+  'analytics': 'Data & Analytics',
+  'data science': 'Data & Analytics',
+  'cyber': 'Cybersecurity',
+  'cybersecurity': 'Cybersecurity',
+  'security': 'Cybersecurity',
+  'infosec': 'Cybersecurity',
+  'robotics': 'Robotics & IoT',
+  'robot': 'Robotics & IoT',
+  'iot': 'Robotics & IoT',
+  'embedded': 'Robotics & IoT',
+  'hardware': 'Robotics & IoT',
+  'design': 'Design / UI-UX',
+  'ui': 'Design / UI-UX',
+  'ux': 'Design / UI-UX',
+  'ui/ux': 'Design / UI-UX',
+  'product design': 'Design / UI-UX',
+  'business': 'Business & Strategy',
+  'strategy': 'Business & Strategy',
+  'case study': 'Business & Strategy',
+  'management': 'Business & Strategy',
+  'startup': 'Startup & Innovation',
+  'innovation': 'Startup & Innovation',
+  'pitch': 'Startup & Innovation',
+  'entrepreneurship': 'Startup & Innovation',
+  'marketing': 'Marketing & Growth',
+  'growth': 'Marketing & Growth',
+  'branding': 'Marketing & Growth',
+  'brand': 'Marketing & Growth',
+  'seo': 'Marketing & Growth',
+  'ads': 'Marketing & Growth',
+  'finance': 'Finance & Fintech',
+  'fintech': 'Finance & Fintech',
+  'investment': 'Finance & Fintech',
+  'trading': 'Finance & Fintech',
+  'health': 'Health & Biotech',
+  'biotech': 'Health & Biotech',
+  'medical': 'Health & Biotech',
+  'med': 'Health & Biotech',
+  'education': 'Education & EdTech',
+  'edtech': 'Education & EdTech',
+  'learning': 'Education & EdTech',
+  'training': 'Education & EdTech',
+  'sustainability': 'Sustainability & Environment',
+  'environment': 'Sustainability & Environment',
+  'green': 'Sustainability & Environment',
+  'climate': 'Sustainability & Environment',
+  'gaming': 'Gaming & Esports',
+  'esports': 'Gaming & Esports',
+  'game': 'Gaming & Esports',
+  'research': 'Research & Science',
+  'science': 'Research & Science',
+  'other': 'Other'
+};
+
+function normalizeCategory(category = '') {
+  const normalized = category.toString().toLowerCase().trim();
+  if (!normalized) return '';
+  if (CATEGORY_MAP[normalized]) return CATEGORY_MAP[normalized];
+
+  // Fallback: partial match against known keys
+  const hit = Object.entries(CATEGORY_MAP).find(([key]) => normalized.includes(key));
+  if (hit) return hit[1];
+
+  return category;
+}
+
+async function getActiveRegistrationCountMap(contestIds) {
+  const registrations = getCollection('registrations');
+
+  const normalizedIds = (contestIds || []).filter(Boolean);
+  if (normalizedIds.length === 0) return new Map();
+
+  // Handle legacy data where contestId may be stored as string instead of ObjectId
+  const idStrings = normalizedIds.map((id) => id.toString());
+  const inList = [...normalizedIds, ...idStrings];
+
+  const rows = await registrations
+    .aggregate([
+      { $match: { status: 'active', contestId: { $in: inList } } },
+      { $group: { _id: { $toString: '$contestId' }, count: { $sum: 1 } } },
+    ])
+    .toArray();
+
+  const map = new Map();
+  for (const row of rows) {
+    map.set(row._id, row.count);
+  }
+  return map;
+}
+
 const contestFields = {
   projection: {
     title: 1,
@@ -68,7 +172,15 @@ router.get('/', async (req, res, next) => {
       .limit(limit)
       .toArray();
 
-    res.json({ contests: contests.map(mapContest) });
+    const countMap = await getActiveRegistrationCountMap(contests.map((c) => c._id));
+
+    const mapped = contests.map((doc) => {
+      const contest = mapContest(doc);
+      contest.registrationCount = countMap.get(doc._id.toString()) ?? 0;
+      return contest;
+    });
+
+    res.json({ contests: mapped });
   } catch (error) {
     next(error);
   }
@@ -82,11 +194,21 @@ router.get('/:id', async (req, res, next) => {
       return res.status(400).json({ error: 'Invalid contest id' });
     }
 
-    const contest = await getCollection('contests').findOne({ _id: new ObjectId(id) }, contestFields);
+    const contestId = new ObjectId(id);
+    const contest = await getCollection('contests').findOne({ _id: contestId }, contestFields);
     if (!contest) {
       return res.status(404).json({ error: 'Contest not found' });
     }
-    res.json({ contest: mapContest(contest) });
+
+    const activeCount = await getCollection('registrations').countDocuments({
+      status: 'active',
+      $or: [{ contestId }, { contestId: id }],
+    });
+
+    const mapped = mapContest(contest);
+    mapped.registrationCount = activeCount;
+
+    res.json({ contest: mapped });
   } catch (error) {
     next(error);
   }
@@ -115,7 +237,7 @@ router.post('/', authGuard, requireRole('admin'), async (req, res, next) => {
       // New fields
       location: body.location || '',
       locationType: body.locationType || 'online', // online, offline, hybrid
-      category: body.category || '', // Hackathon, Design Challenge, Coding Contest, etc.
+      category: normalizeCategory(body.category || ''), // Canonical category label
       rules: body.rules || '', // Rich text for contest rules
       schedule: Array.isArray(body.schedule) ? body.schedule : [], // Array of {date, title, description}
       prizes: Array.isArray(body.prizes) ? body.prizes : [], // Array of {rank, title, value, description}
@@ -154,7 +276,7 @@ router.patch('/:id', authGuard, requireRole('admin'), async (req, res, next) => 
     const set = { updatedAt: new Date() };
     allowed.forEach((key) => {
       if (updates[key] !== undefined) {
-        set[key] = updates[key];
+        set[key] = key === 'category' ? normalizeCategory(updates[key]) : updates[key];
       }
     });
 
@@ -173,7 +295,52 @@ router.patch('/:id', authGuard, requireRole('admin'), async (req, res, next) => 
   }
 });
 
+router.delete('/:id', authGuard, requireRole('admin'), async (req, res, next) => {
+  try {
+    await connectToDatabase();
+    const id = req.params.id;
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).json({ error: 'Invalid contest id' });
+    }
+
+    const contestId = new ObjectId(id);
+    const contests = getCollection('contests');
+    const registrations = getCollection('registrations');
+    const teamPosts = getCollection('team_posts');
+
+    // Remove contest first
+    const deleteResult = await contests.deleteOne({ _id: contestId });
+    if (deleteResult.deletedCount === 0) {
+      return res.status(404).json({ error: 'Contest not found' });
+    }
+
+    // Best-effort cleanup of related data
+    const [registrationCleanup, teamPostsCleanup] = await Promise.allSettled([
+      registrations.deleteMany({ contestId }),
+      teamPosts.deleteMany({
+        $or: [
+          { contestId },
+          { contestId: id }, // handle string-stored ids
+        ]
+      })
+    ]);
+
+    res.json({
+      deleted: true,
+      removedRegistrations: registrationCleanup.status === 'fulfilled'
+        ? registrationCleanup.value.deletedCount
+        : 0,
+      removedTeamPosts: teamPostsCleanup.status === 'fulfilled'
+        ? teamPostsCleanup.value.deletedCount
+        : 0,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 function mapContest(doc) {
+  const maxParticipants = Number(doc.maxParticipants) || 0;
   return {
     id: doc._id?.toString(),
     title: doc.title,
@@ -195,8 +362,8 @@ function mapContest(doc) {
     objectives: doc.objectives || '',
     eligibility: doc.eligibility || '',
     organizerDetails: doc.organizerDetails || {},
-    maxParticipants: doc.maxParticipants || 0,
-    registrationCount: doc.registrationCount || 0,
+    maxParticipants: maxParticipants > 0 ? maxParticipants : undefined,
+    registrationCount: Number(doc.registrationCount) || 0,
     createdAt: doc.createdAt,
     updatedAt: doc.updatedAt,
   };

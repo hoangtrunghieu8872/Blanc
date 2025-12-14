@@ -2,6 +2,7 @@ import { MongoClient, ServerApiVersion } from 'mongodb';
 
 let client;
 let database;
+let streakIndexesPromise;
 
 const uri = process.env.MONGODB_URI;
 const dbName = process.env.DB_NAME || 'blanc';
@@ -68,6 +69,37 @@ export async function connectToDatabase() {
 
     // Verify connection with a simple ping (compatible with Stable API)
     await database.command({ ping: 1 });
+
+    // Ensure critical indexes exist (once per process)
+    if (!streakIndexesPromise) {
+        streakIndexesPromise = (async () => {
+            const streaks = database.collection('user_streaks');
+            try {
+                await streaks.createIndex(
+                    { userId: 1 },
+                    { unique: true, name: 'idx_user_streak' }
+                );
+            } catch (err) {
+                // Duplicate userId values prevent building a unique index; fix data then restart.
+                if (err?.code === 11000) {
+                    const message =
+                        'Cannot create unique index user_streaks.userId because duplicates exist. Run server/scripts/fix-duplicate-streaks.cjs then restart.';
+                    if (process.env.NODE_ENV === 'production') {
+                        console.error(message);
+                        return;
+                    }
+                    throw new Error(message);
+                }
+
+                if (err?.code === 85 || err?.codeName === 'IndexOptionsConflict') {
+                    return;
+                }
+
+                throw err;
+            }
+        })();
+    }
+    await streakIndexesPromise;
 
     // Log connection success
     if (process.env.NODE_ENV !== 'production') {

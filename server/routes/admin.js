@@ -14,6 +14,72 @@ const requireAdmin = (req, res, next) => {
     next();
 };
 
+// Basic user sanitizer (avoid leaking sensitive fields)
+function sanitizeUser(user) {
+    if (!user) return null;
+    return {
+        id: user._id?.toString() || user.id,
+        name: user.name || '',
+        email: user.email,
+        role: user.role || 'student',
+        avatar: user.avatar || null,
+        status: user.status || 'active',
+        balance: user.balance || 0,
+        createdAt: user.createdAt,
+        updatedAt: user.updatedAt,
+        bannedAt: user.bannedAt,
+        bannedBy: user.bannedBy,
+        bannedReason: user.bannedReason,
+    };
+}
+
+// Build a flexible query for user id (supports ObjectId, string ids, and prefixed ids)
+function buildUserIdQuery(id) {
+    const or = [];
+    const raw = String(id || '').trim();
+
+    if (ObjectId.isValid(raw)) {
+        or.push({ _id: new ObjectId(raw) });
+    }
+
+    if (raw.startsWith('user_')) {
+        const trimmed = raw.replace(/^user_/, '');
+        if (ObjectId.isValid(trimmed)) {
+            or.push({ _id: new ObjectId(trimmed) });
+        }
+        or.push({ _id: trimmed });
+    }
+
+    // Fallbacks
+    or.push({ _id: raw });
+    or.push({ id: raw });
+
+    // Deduplicate identical filters
+    const seen = new Set();
+    const uniqueOr = [];
+    for (const entry of or) {
+        const key = JSON.stringify(entry);
+        if (!seen.has(key)) {
+            seen.add(key);
+            uniqueOr.push(entry);
+        }
+    }
+
+    return uniqueOr.length === 1 ? uniqueOr[0] : { $or: uniqueOr };
+}
+
+function escapeHtml(value = '') {
+    return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function formatPlaintextToHtml(value = '') {
+    return escapeHtml(value).replace(/\r?\n/g, '<br/>');
+}
 
 // Helper: Get client IP
 function getClientIp(req) {
@@ -222,6 +288,276 @@ router.get('/users', authGuard, requireAdmin, async (req, res, next) => {
     }
 });
 
+// GET /api/admin/users/:id/profile - detailed profile
+router.get('/users/:id/profile', authGuard, requireAdmin, async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        if (!ObjectId.isValid(id)) {
+            return res.status(400).json({ error: 'Invalid user id' });
+        }
+
+        await connectToDatabase();
+        const users = getCollection('users');
+        const user = await users.findOne({ _id: new ObjectId(id) });
+        if (!user) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+
+        // TODO: extend with wallet/registrations if needed
+        res.json(sanitizeUser(user));
+    } catch (error) {
+        next(error);
+    }
+});
+
+// PUT /api/admin/users/:id - update user fields
+router.put('/users/:id', authGuard, requireAdmin, async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        if (!ObjectId.isValid(id)) {
+            return res.status(400).json({ error: 'Invalid user id' });
+        }
+
+        const allowed = ['name', 'email', 'role', 'status', 'avatar', 'balance'];
+        const updates = {};
+        allowed.forEach(field => {
+            if (req.body[field] !== undefined) {
+                updates[field] = req.body[field];
+            }
+        });
+        if (Object.keys(updates).length === 0) {
+            return res.status(400).json({ error: 'No valid fields to update' });
+        }
+
+        updates.updatedAt = new Date();
+
+        await connectToDatabase();
+        const users = getCollection('users');
+        const result = await users.findOneAndUpdate(
+            { _id: new ObjectId(id) },
+            { $set: updates },
+            { returnDocument: 'after' }
+        );
+
+        const updatedUser = result?.value ?? result;
+        if (!updatedUser) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+
+        logAuditEvent({
+            action: 'USER_UPDATE',
+            userId: req.user.id,
+            userEmail: req.user.email,
+            userName: req.user.name,
+            target: updatedUser.email,
+            status: 'Success',
+            details: `Updated user fields: ${Object.keys(updates).join(', ')}`,
+            ip: getClientIp(req)
+        });
+
+        res.json(sanitizeUser(updatedUser));
+    } catch (error) {
+        next(error);
+    }
+});
+
+// Shared handler for status changes (supports /users/:id/status and /user/:id/status)
+async function updateUserStatusHandler(req, res, next) {
+    try {
+        const { id } = req.params;
+        const { status, reason } = req.body || {};
+
+        if (!['active', 'banned', 'inactive'].includes(status)) {
+            return res.status(400).json({ error: 'Invalid status' });
+        }
+
+        await connectToDatabase();
+        const users = getCollection('users');
+
+        const filter = buildUserIdQuery(id);
+
+        const beforeUser = await users.findOne(filter, {
+            projection: { status: 1, email: 1, name: 1 },
+        });
+
+        const update = {
+            status,
+            updatedAt: new Date(),
+        };
+
+        if (status === 'banned') {
+            update.bannedAt = new Date();
+            update.bannedBy = req.user.id;
+            update.bannedReason = reason || 'Banned by admin';
+        } else {
+            update.bannedAt = null;
+            update.bannedBy = null;
+            update.bannedReason = null;
+        }
+
+        const result = await users.findOneAndUpdate(
+            filter,
+            { $set: update },
+            { returnDocument: 'after' }
+        );
+
+        const updatedUser = result?.value ?? result;
+        if (!updatedUser) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+
+        // Send email notification on ban/unban (best-effort, non-blocking)
+        try {
+            const settings = await getSettings();
+            const emailEnabled = settings?.notifications?.emailNotifications !== false;
+            const systemAlertsEnabled = settings?.notifications?.systemAlerts !== false;
+
+            const targetEmail = updatedUser.email || beforeUser?.email;
+            const targetName = updatedUser.name || beforeUser?.name || '';
+            const previousStatus = beforeUser?.status;
+
+            if (emailEnabled && systemAlertsEnabled && targetEmail) {
+                if (status === 'banned' && previousStatus !== 'banned') {
+                    const safeReason = formatPlaintextToHtml(update.bannedReason || 'Bị khóa bởi quản trị viên');
+                    const supportEmail = settings?.general?.supportEmail || 'support@blanc.com';
+
+                    void sendSystemNotification({
+                        to: targetEmail,
+                        userName: targetName,
+                        severity: 'urgent',
+                        title: 'Tài khoản của bạn đã bị khóa',
+                        message: `
+                            <p>Tài khoản của bạn đã bị khóa và tạm thời không thể truy cập nền tảng.</p>
+                            <p><strong>Lý do:</strong> ${safeReason}</p>
+                            <p>Nếu bạn cho rằng đây là nhầm lẫn, vui lòng liên hệ <a href="mailto:${escapeHtml(supportEmail)}">${escapeHtml(supportEmail)}</a> để được hỗ trợ.</p>
+                        `,
+                    }).catch(err => {
+                        console.error('[ADMIN] Failed to send ban email:', err?.message || err);
+                    });
+                }
+
+                if (status === 'active' && previousStatus === 'banned') {
+                    const supportEmail = settings?.general?.supportEmail || 'support@blanc.com';
+
+                    void sendSystemNotification({
+                        to: targetEmail,
+                        userName: targetName,
+                        severity: 'success',
+                        title: 'Tài khoản của bạn đã được kích hoạt lại',
+                        message: `
+                            <p>Tài khoản của bạn đã được kích hoạt lại. Bạn có thể đăng nhập và sử dụng nền tảng như bình thường.</p>
+                            <p>Chúng tôi xin lỗi vì sự bất tiện/phiền toái trước đó.</p>
+                            <p>Nếu bạn cần hỗ trợ thêm, vui lòng liên hệ <a href="mailto:${escapeHtml(supportEmail)}">${escapeHtml(supportEmail)}</a>.</p>
+                        `,
+                    }).catch(err => {
+                        console.error('[ADMIN] Failed to send unban email:', err?.message || err);
+                    });
+                }
+            }
+        } catch (emailErr) {
+            console.error('[ADMIN] Email notification skipped due to error:', emailErr?.message || emailErr);
+        }
+
+        logAuditEvent({
+            action: status === 'banned' ? 'USER_BANNED' : 'USER_ACTIVATED',
+            userId: req.user.id,
+            userEmail: req.user.email,
+            userName: req.user.name,
+            target: updatedUser.email,
+            status: 'Success',
+            details: status === 'banned'
+                ? `Banned user. Reason: ${update.bannedReason}`
+                : 'Activated user',
+            ip: getClientIp(req)
+        });
+
+        res.json(sanitizeUser(updatedUser));
+    } catch (error) {
+        next(error);
+    }
+}
+
+router.patch([
+    '/users/:id/status',
+    '/user/:id/status',
+    '/user_:id/status',
+    '/users/user_:id/status'
+], authGuard, requireAdmin, updateUserStatusHandler);
+
+// POST /api/admin/users/:id/ban - convenience route
+// POST /api/admin/users/:id/ban - convenience route
+router.post(['/users/:id/ban', '/user_:id/ban', '/user/:id/ban'], authGuard, requireAdmin, (req, res, next) => {
+    req.body = { status: 'banned', reason: req.body?.reason };
+    updateUserStatusHandler(req, res, next);
+});
+
+// POST /api/admin/users/:id/activate - convenience route
+router.post(['/users/:id/activate', '/user_:id/activate', '/user/:id/activate'], authGuard, requireAdmin, (req, res, next) => {
+    req.body = { status: 'active' };
+    updateUserStatusHandler(req, res, next);
+});
+
+// DELETE /api/admin/users/:id - delete user
+router.delete('/users/:id', authGuard, requireAdmin, async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        if (!ObjectId.isValid(id)) {
+            return res.status(400).json({ error: 'Invalid user id' });
+        }
+
+        await connectToDatabase();
+        const users = getCollection('users');
+        const result = await users.deleteOne({ _id: new ObjectId(id) });
+
+        if (result.deletedCount === 0) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+
+        logAuditEvent({
+            action: 'USER_DELETED',
+            userId: req.user.id,
+            userEmail: req.user.email,
+            userName: req.user.name,
+            target: id,
+            status: 'Success',
+            details: `Deleted user ${id}`,
+            ip: getClientIp(req)
+        });
+
+        res.json({ message: 'User deleted' });
+    } catch (error) {
+        next(error);
+    }
+});
+
+// GET /api/admin/users/stats - counts by status
+router.get('/users/stats', authGuard, requireAdmin, async (req, res, next) => {
+    try {
+        await connectToDatabase();
+        const users = getCollection('users');
+
+        const [total, active, banned] = await Promise.all([
+            users.countDocuments(),
+            users.countDocuments({ status: 'active' }),
+            users.countDocuments({ status: 'banned' }),
+        ]);
+
+        const startOfMonth = new Date();
+        startOfMonth.setDate(1);
+        startOfMonth.setHours(0, 0, 0, 0);
+        const newUsersThisMonth = await users.countDocuments({ createdAt: { $gte: startOfMonth } });
+
+        res.json({
+            totalUsers: total,
+            activeUsers: active,
+            bannedUsers: banned,
+            newUsersThisMonth,
+        });
+    } catch (error) {
+        next(error);
+    }
+});
+
 /**
  * GET /api/admin/settings
  * Get all platform settings (admin only)
@@ -281,6 +617,8 @@ router.patch('/settings/general', authGuard, async (req, res, next) => {
             { returnDocument: 'after', upsert: true }
         );
 
+        const updatedSettings = result?.value ?? result;
+
         // Log audit event
         logAuditEvent({
             action: 'SETTINGS_CHANGE',
@@ -293,7 +631,7 @@ router.patch('/settings/general', authGuard, async (req, res, next) => {
             ip: getClientIp(req)
         });
 
-        res.json(result.value?.general || result.general);
+        res.json(updatedSettings?.general || {});
     } catch (error) {
         next(error);
     }
@@ -334,7 +672,8 @@ router.patch('/settings/notifications', authGuard, async (req, res, next) => {
             { returnDocument: 'after', upsert: true }
         );
 
-        res.json(result.value?.notifications || result.notifications);
+        const updatedSettings = result?.value ?? result;
+        res.json(updatedSettings?.notifications || {});
     } catch (error) {
         next(error);
     }
@@ -375,7 +714,8 @@ router.patch('/settings/security', authGuard, async (req, res, next) => {
             { returnDocument: 'after', upsert: true }
         );
 
-        res.json(result.value?.security || result.security);
+        const updatedSettings = result?.value ?? result;
+        res.json(updatedSettings?.security || {});
     } catch (error) {
         next(error);
     }
@@ -416,7 +756,8 @@ router.patch('/settings/features', authGuard, async (req, res, next) => {
             { returnDocument: 'after', upsert: true }
         );
 
-        res.json(result.value?.features || result.features);
+        const updatedSettings = result?.value ?? result;
+        res.json(updatedSettings?.features || {});
     } catch (error) {
         next(error);
     }

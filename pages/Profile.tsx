@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Calendar as CalendarIcon, Trophy, BookOpen, Clock, Settings, LogOut, ChevronRight, Loader2, Play, CheckCircle2, BarChart3, Trash2, Flame } from 'lucide-react';
+import { Calendar as CalendarIcon, Trophy, BookOpen, Clock, Settings, LogOut, ChevronRight, Loader2, Play, CheckCircle2, BarChart3, Trash2 } from 'lucide-react';
 import { Button, Card, Badge, Input, Tabs } from '../components/ui/Common';
 import ScheduleCalendar from '../components/ScheduleCalendar';
 import WorkloadWarningCard from '../components/WorkloadWarningCard';
@@ -84,7 +84,27 @@ const Profile: React.FC = () => {
       todayCheckedIn,
       isLoading: streakLoading,
       message: streakMessage
-   } = useStreak({ autoCheckin: !!currentUser });
+   } = useStreak({ autoCheckin: false, userId: currentUser?.id });
+
+   const prevStreakRef = useRef<number | null>(null);
+   const [isStreakCelebrating, setIsStreakCelebrating] = useState(false);
+
+   useEffect(() => {
+      const prev = prevStreakRef.current;
+      prevStreakRef.current = currentStreak;
+      if (todayCheckedIn && prev !== null && currentStreak > prev) {
+         setIsStreakCelebrating(true);
+         const timer = window.setTimeout(() => setIsStreakCelebrating(false), 650);
+         return () => window.clearTimeout(timer);
+      }
+   }, [currentStreak, todayCheckedIn]);
+
+   useEffect(() => {
+      if (!streakMessage) return;
+      setIsStreakCelebrating(true);
+      const timer = window.setTimeout(() => setIsStreakCelebrating(false), 650);
+      return () => window.clearTimeout(timer);
+   }, [streakMessage]);
 
    // Show loading while initializing or if no user
    if (!isInitialized || !currentUser) {
@@ -132,13 +152,7 @@ const Profile: React.FC = () => {
       }
    };
 
-   // Get progress bar color
-   const getProgressColor = (progress: number) => {
-      if (progress >= 80) return 'bg-green-500';
-      if (progress >= 50) return 'bg-primary-500';
-      if (progress >= 25) return 'bg-yellow-500';
-      return 'bg-slate-300';
-   };
+   // star removed
 
    // Tab content renderer
    const renderTabContent = () => {
@@ -291,22 +305,14 @@ const Profile: React.FC = () => {
                                        </div>
                                     </div>
 
-                                    {/* Progress Bar */}
+                                     {/* Progress UI removed */}
                                     <div className="mt-3">
                                        <div className="flex items-center justify-between text-xs mb-1.5">
                                           <span className="text-slate-500">
                                              {enrollment.completedLessons?.length || 0} / {enrollment.course.lessonsCount || '?'} bài học
                                           </span>
-                                          <span className="font-semibold text-slate-700">{enrollment.progress || 0}%</span>
-                                       </div>
-                                       <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
-                                          <div
-                                             className={`h-2 rounded-full transition-all ${getProgressColor(enrollment.progress || 0)}`}
-                                             data-progress={enrollment.progress || 0}
-                                             ref={(el) => { if (el) el.style.width = `${enrollment.progress || 0}%`; }}
-                                          />
-                                       </div>
-                                    </div>
+                                        </div>
+                                     </div>
 
                                     {/* Actions */}
                                     <div className="flex items-center justify-between mt-3 pt-3 border-t border-slate-100">
@@ -370,7 +376,8 @@ const Profile: React.FC = () => {
                   {/* Streak Message Toast */}
                   {streakMessage && (
                      <div className="mb-4 p-4 bg-linear-to-r from-orange-50 to-amber-50 border border-orange-200 rounded-xl flex items-center gap-3 animate-fade-in">
-                        <Flame className="w-6 h-6 text-orange-500" />
+                         <img src="/streak/flame-tight.gif" className="streak-motion w-6 h-6 object-contain mix-blend-screen" alt="" aria-hidden="true" />
+                         <img src="/streak/flame-tight.png" className="streak-reduce-motion w-6 h-6 object-contain mix-blend-screen" alt="" aria-hidden="true" />
                         <span className="text-orange-800 font-medium">{streakMessage}</span>
                      </div>
                   )}
@@ -384,22 +391,58 @@ const Profile: React.FC = () => {
                            <div className="text-xs text-slate-500">Kỷ lục streak</div>
                         </div>
                      </Card>
-                     <Card className={`p-4 flex items-center space-x-4 ${todayCheckedIn ? 'ring-2 ring-emerald-200' : ''}`}>
-                        <div className={`p-3 rounded-lg ${todayCheckedIn ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-100 text-slate-400'}`}>
-                           {streakLoading ? (
-                              <Loader2 className="w-6 h-6 animate-spin" />
-                           ) : (
-                              <Flame className="w-6 h-6" />
-                           )}
-                        </div>
-                        <div>
-                           <div className="text-2xl font-bold text-slate-900 flex items-center gap-2">
-                              {currentStreak} ngày
-                              {currentStreak >= 7 && <span className="text-lg">🔥</span>}
-                              {currentStreak >= 30 && <span className="text-lg">⭐</span>}
+                     <Card className={`relative overflow-hidden p-4 ${todayCheckedIn ? 'ring-2 ring-emerald-200 bg-linear-to-r from-emerald-50/80 to-white' : ''}`}>
+                        {todayCheckedIn && currentStreak >= 3 && (
+                           <span
+                              className="pointer-events-none absolute inset-y-0 left-0 w-[35%] bg-linear-to-r from-white/0 via-white/70 to-white/0 opacity-25 animate-streak-shine"
+                              aria-hidden="true"
+                           />
+                        )}
+
+                        <div className="relative flex items-center space-x-4">
+                           <div className={`relative w-12 h-12 shrink-0 grid place-items-center overflow-hidden rounded-xl ring-1 ring-inset ${todayCheckedIn ? 'bg-linear-to-br from-emerald-500 to-teal-500 text-white ring-white/25 shadow-sm' : 'bg-slate-100 text-slate-400 ring-slate-200/70'}`}>
+                              {streakLoading ? (
+                                 <Loader2 className="w-6 h-6 animate-spin" />
+                              ) : todayCheckedIn ? (
+                                 <>
+                                    <img
+                                       src="/streak/flame-tight.gif"
+                                       className="streak-motion w-[150%] h-[150%] -translate-y-[8%] object-contain mix-blend-screen brightness-110 saturate-150 contrast-125 drop-shadow-[0_6px_14px_rgba(0,0,0,0.18)]"
+                                       alt=""
+                                       aria-hidden="true"
+                                    />
+                                    <img
+                                       src="/streak/flame-tight.png"
+                                       className="streak-reduce-motion w-[150%] h-[150%] -translate-y-[8%] object-contain mix-blend-screen brightness-110 saturate-150 contrast-125 drop-shadow-[0_6px_14px_rgba(0,0,0,0.18)]"
+                                       alt=""
+                                       aria-hidden="true"
+                                    />
+                                 </>
+                              ) : (
+                                  <img src="/streak/flame-tight.png" className="w-[150%] h-[150%] -translate-y-[8%] object-contain mix-blend-screen opacity-60 grayscale" alt="" aria-hidden="true" />
+                              )}
                            </div>
-                           <div className="text-xs text-slate-500">
-                              {todayCheckedIn ? '✓ Đã điểm danh hôm nay' : 'Chuỗi học tập'}
+
+                           <div>
+                              <div className="text-2xl font-bold text-slate-900 flex items-center gap-2">
+                                 <span className={`inline-flex items-baseline gap-1 ${isStreakCelebrating ? 'animate-streak-pop' : ''}`}>
+                                    <span className="tabular-nums">{currentStreak}</span>
+                                    <span className="text-base font-semibold text-slate-600">ngày</span>
+                                 </span>
+
+                                  {/* star removed */}
+                               </div>
+
+                              <div className="text-xs text-slate-500 flex items-center gap-1">
+                                 {todayCheckedIn ? (
+                                    <>
+                                       <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                                       <span>Đã điểm danh hôm nay</span>
+                                    </>
+                                 ) : (
+                                    <span>Chuỗi học tập</span>
+                                 )}
+                              </div>
                            </div>
                         </div>
                      </Card>
@@ -477,19 +520,11 @@ const Profile: React.FC = () => {
                         <div className="space-y-5">
                            {enrollments.filter(e => e.status === 'active').slice(0, 3).map(enrollment => enrollment.course && (
                               <div key={enrollment.id}>
-                                 <div className="flex justify-between text-sm mb-1.5">
-                                    <span className="font-medium text-slate-900 line-clamp-1">{enrollment.course.title}</span>
-                                    <span className="text-slate-500 shrink-0 ml-2">{enrollment.progress || 0}%</span>
+                                 <div className="flex justify-between text-sm">
+                                     <span className="font-medium text-slate-900 line-clamp-1">{enrollment.course.title}</span>
                                  </div>
-                                 <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
-                                    <div
-                                       className={`h-2 rounded-full transition-all ${getProgressColor(enrollment.progress || 0)}`}
-                                       data-progress={enrollment.progress || 0}
-                                       ref={(el) => { if (el) el.style.width = `${enrollment.progress || 0}%`; }}
-                                    />
-                                 </div>
-                              </div>
-                           ))}
+                               </div>
+                            ))}
                         </div>
                      ) : (
                         <p className="text-center text-slate-500 py-4">

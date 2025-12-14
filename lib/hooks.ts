@@ -93,12 +93,10 @@ interface Stats {
   users: number;
   contests: number;
   courses: number;
-  avgRating: string;
   formatted: {
     users: string;
     contests: string;
     courses: string;
-    avgRating: string;
   };
 }
 
@@ -448,7 +446,7 @@ export function useStreak(options: UseStreakOptions = {}) {
       setStreak({
         currentStreak: response.currentStreak,
         longestStreak: response.longestStreak,
-        lastActivityDate: new Date().toISOString(),
+        lastActivityDate: response.lastActivityDate ?? new Date().toISOString(),
         todayCheckedIn: response.todayCheckedIn
       });
       setMessage(response.message);
@@ -685,7 +683,7 @@ interface UseRecommendedContentOptions {
  * Falls back to regular contests/courses if not logged in or API fails
  */
 export function useRecommendedContent(options: UseRecommendedContentOptions = {}) {
-  const { contestLimit = 3, courseLimit = 4, autoFetch = true } = options;
+  const { contestLimit = 3, courseLimit = 3, autoFetch = true } = options;
 
   const [contests, setContests] = useState<Contest[]>([]);
   const [courses, setCourses] = useState<Course[]>([]);

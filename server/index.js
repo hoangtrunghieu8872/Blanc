@@ -24,6 +24,10 @@ import adminRouter from './routes/admin.js';
 import reviewsRouter from './routes/reviews.js';
 import documentsRouter from './routes/documents.js';
 import reportsRouter from './routes/reports.js';
+import feedbackRouter from './routes/feedback.js';
+import newsRouter from './routes/news.js';
+import recruitmentsRouter from './routes/recruitments.js';
+import { trackConcurrentUsers } from './lib/concurrentUsers.js';
 
 const app = express();
 const port = process.env.PORT || 4000;
@@ -71,6 +75,18 @@ app.use(compression());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
+// Track approximate concurrent users (best-effort, in-memory) for alerting.
+app.use((req, _res, next) => {
+  try {
+    if (req.path?.startsWith('/api/health')) return next();
+    trackConcurrentUsers(req);
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error('[concurrent-users] tracking error:', err?.message || err);
+  }
+  return next();
+});
+
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 300,
@@ -97,6 +113,9 @@ app.use('/api/admin', adminRouter);
 app.use('/api/reviews', reviewsRouter);
 app.use('/api/documents', documentsRouter);
 app.use('/api/reports', reportsRouter);
+app.use('/api/feedback', feedbackRouter);
+app.use('/api/news', newsRouter);
+app.use('/api/recruitments', recruitmentsRouter);
 
 app.use((req, res) => {
   res.status(404).json({ error: 'Not Found' });
@@ -128,4 +147,3 @@ connectToDatabase()
     console.error('Failed to start API server', error);
     process.exit(1);
   });
-

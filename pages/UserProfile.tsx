@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import {
     User, MapPin, Briefcase, Code, Award, BookOpen, Trophy,
-    Calendar, Flame, Lock, ArrowLeft, Loader2, ExternalLink,
+    Calendar, Lock, ArrowLeft, Loader2, ExternalLink,
     Users, MessageCircle, Globe, Star, CheckCircle, Clock
 } from 'lucide-react';
 import { Card, Button, Badge } from '../components/ui/Common';
@@ -211,10 +211,23 @@ const UserProfile: React.FC = () => {
 
                             {/* Streak Badge */}
                             {profile.streak && profile.streak.currentStreak > 0 && (
-                                <div className="flex items-center gap-2 px-3 py-1.5 bg-gradient-to-r from-orange-400 to-red-500 text-white rounded-full shadow">
-                                    <Flame className="w-5 h-5" />
-                                    <span className="font-bold">{profile.streak.currentStreak}</span>
-                                    <span className="text-sm opacity-90">ngày</span>
+                                <div className="group relative inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-sm font-semibold tabular-nums bg-linear-to-r from-orange-400 to-red-500 text-white shadow-sm ring-1 ring-white/25 overflow-hidden">
+                                    {profile.streak.currentStreak >= 3 && (
+                                        <span
+                                            className="pointer-events-none absolute inset-y-0 left-0 w-[42%] bg-linear-to-r from-white/0 via-white/45 to-white/0 opacity-30 animate-streak-shine"
+                                            aria-hidden="true"
+                                        />
+                                    )}
+
+                                    <span className="relative grid place-items-center w-7 h-7 overflow-visible" aria-hidden="true">
+                                        <img src="/streak/flame-tight.gif" className="streak-motion w-[150%] h-[150%] -translate-y-[18%] object-contain mix-blend-screen brightness-110 saturate-150 contrast-125" alt="" aria-hidden="true" />
+                                        <img src="/streak/flame-tight.png" className="streak-reduce-motion w-[150%] h-[150%] -translate-y-[18%] object-contain mix-blend-screen brightness-110 saturate-150 contrast-125" alt="" aria-hidden="true" />
+                                    </span>
+
+                                    <span className="relative font-extrabold leading-none">{profile.streak.currentStreak}</span>
+                                    <span className="text-sm font-medium opacity-90">ngày</span>
+
+                                    {/* star removed */}
                                 </div>
                             )}
                         </div>
@@ -360,18 +373,8 @@ const UserProfile: React.FC = () => {
                                                     <CheckCircle className="w-4 h-4" />
                                                     Hoàn thành
                                                 </span>
-                                            ) : (
-                                                <span className="text-sm text-slate-500">{enrollment.progress}%</span>
-                                            )}
-                                        </div>
-                                        {enrollment.status !== 'completed' && (
-                                            <div className="w-full bg-slate-200 rounded-full h-2">
-                                                <div
-                                                    className="bg-primary-500 h-2 rounded-full transition-all"
-                                                    style={{ width: `${enrollment.progress}%` }}
-                                                />
-                                            </div>
-                                        )}
+                                            ) : null}
+                                         </div>
                                     </div>
                                 ))}
                             </div>
@@ -405,7 +408,8 @@ const UserProfile: React.FC = () => {
                             {profile.streak && (
                                 <div className="p-3 bg-gradient-to-br from-orange-50 to-red-50 rounded-lg mb-4">
                                     <div className="flex items-center gap-3">
-                                        <Flame className="w-8 h-8 text-orange-500" />
+                                        <img src="/streak/flame-tight.gif" className="streak-motion w-8 h-8 object-contain mix-blend-screen" alt="" aria-hidden="true" />
+                                        <img src="/streak/flame-tight.png" className="streak-reduce-motion w-8 h-8 object-contain mix-blend-screen" alt="" aria-hidden="true" />
                                         <div>
                                             <p className="font-bold text-slate-900">{profile.streak.longestStreak} ngày</p>
                                             <p className="text-xs text-slate-500">Chuỗi dài nhất</p>

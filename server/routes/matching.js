@@ -445,9 +445,9 @@ router.get('/content-recommendations', authGuard, recommendationLimiter, async (
             return res.status(401).json({ error: 'Unauthorized' });
         }
 
-        // Parse and validate limits
+        // Parse and validate limits (default to 3)
         const contestLimit = Math.min(Math.max(parseInt(req.query.contestLimit) || 3, 1), 6);
-        const courseLimit = Math.min(Math.max(parseInt(req.query.courseLimit) || 4, 1), 8);
+        const courseLimit = Math.min(Math.max(parseInt(req.query.courseLimit) || 3, 1), 8);
 
         // Get recommended content
         const recommendations = await getRecommendedContent(userId, {

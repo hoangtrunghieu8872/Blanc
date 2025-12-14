@@ -747,7 +747,7 @@ router.post('/', authGuard, async (req, res, next) => {
                 // Send email notification if email available
                 if (invited.email) {
                     await sendEmailNotification({
-                        action: 'team_invitation',
+                        action: 'team_invite',
                         email: invited.email,
                         recipientName: invited.name,
                         inviterName: user.name,

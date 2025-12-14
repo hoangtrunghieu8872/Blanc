@@ -42,19 +42,84 @@ const EXPERIENCE_TO_COURSE_LEVEL = {
     'expert': ['Advanced']
 };
 
-// Contest category to skill/role mapping
-const CONTEST_CATEGORY_SKILLS = {
-    'Hackathon': ['React', 'Node.js', 'Python', 'JavaScript', 'TypeScript', 'Frontend Dev', 'Backend Dev', 'Fullstack Dev'],
-    'Coding': ['JavaScript', 'Python', 'Java', 'C++', 'Algorithm', 'Data Structure', 'Backend Dev'],
-    'AI': ['Python', 'Machine Learning', 'Deep Learning', 'TensorFlow', 'PyTorch', 'Data Scientist', 'ML Engineer'],
-    'Data': ['Python', 'SQL', 'Data Analysis', 'Machine Learning', 'Data Analyst', 'Data Scientist'],
-    'Design': ['Figma', 'Adobe XD', 'Photoshop', 'UI/UX Designer', 'Graphic Designer', 'UI Design'],
-    'IoT': ['Arduino', 'Raspberry Pi', 'Python', 'C++', 'Embedded', 'Hardware'],
-    'Animation': ['Adobe After Effects', 'Blender', '3D', '2D', 'Video Editor', 'Graphic Designer'],
-    'Mobile': ['React Native', 'Flutter', 'iOS', 'Android', 'Mobile Dev'],
-    'Web': ['React', 'Vue.js', 'Angular', 'Next.js', 'Frontend Dev', 'Fullstack Dev'],
-    'Startup': ['Business Analysis', 'Product Management', 'Marketing', 'Pitching', 'Business Analyst']
-};
+// Contest category definitions (grouped, with label aliases for legacy values)
+const CONTEST_CATEGORY_SKILLS = [
+    {
+        name: 'IT & Tech',
+        labels: ['it', 'it & tech', 'tech', 'hackathon', 'coding', 'coding contest', 'ai/ml', 'ai', 'ml', 'programming', 'software'],
+        skills: ['React', 'Node.js', 'Python', 'JavaScript', 'TypeScript', 'Algorithms', 'Data Structures', 'Frontend Dev', 'Backend Dev', 'Fullstack Dev', 'ML Engineer']
+    },
+    {
+        name: 'Data & Analytics',
+        labels: ['data', 'data & analytics', 'analytics', 'data science', 'bi'],
+        skills: ['Python', 'SQL', 'Data Analysis', 'Machine Learning', 'Business Intelligence', 'Data Analyst', 'Data Scientist']
+    },
+    {
+        name: 'Cybersecurity',
+        labels: ['cyber', 'cybersecurity', 'security', 'infosec'],
+        skills: ['Security Analyst', 'OWASP', 'Penetration Testing', 'Network Security', 'SIEM', 'Threat Hunting']
+    },
+    {
+        name: 'Robotics & IoT',
+        labels: ['robotics', 'robot', 'iot', 'embedded', 'hardware', 'internet of things'],
+        skills: ['Arduino', 'Raspberry Pi', 'C++', 'Python', 'Embedded Systems', 'Electronics']
+    },
+    {
+        name: 'Design / UI-UX',
+        labels: ['design', 'ui', 'ux', 'ui/ux', 'product design', 'creative'],
+        skills: ['Figma', 'Adobe XD', 'Photoshop', 'UI/UX Designer', 'Graphic Designer', 'Prototyping']
+    },
+    {
+        name: 'Business & Strategy',
+        labels: ['business', 'strategy', 'case study', 'management'],
+        skills: ['Business Analysis', 'Consulting', 'Product Management', 'Market Research']
+    },
+    {
+        name: 'Startup & Innovation',
+        labels: ['startup', 'innovation', 'pitch', 'entrepreneur', 'founder'],
+        skills: ['Pitching', 'Lean Canvas', 'Fundraising', 'MVP', 'Go-to-market']
+    },
+    {
+        name: 'Marketing & Growth',
+        labels: ['marketing', 'growth', 'branding', 'seo', 'ads'],
+        skills: ['Digital Marketing', 'SEO', 'Performance Ads', 'Copywriting', 'Growth Hacking']
+    },
+    {
+        name: 'Finance & Fintech',
+        labels: ['finance', 'fintech', 'investment', 'trading'],
+        skills: ['Financial Analysis', 'Investment', 'Blockchain', 'Payments']
+    },
+    {
+        name: 'Health & Biotech',
+        labels: ['health', 'biotech', 'medical', 'med'],
+        skills: ['Bioinformatics', 'Healthcare', 'Clinical Data', 'Biotech']
+    },
+    {
+        name: 'Education & EdTech',
+        labels: ['education', 'edtech', 'learning', 'training'],
+        skills: ['Instructional Design', 'LMS', 'Teaching', 'Curriculum Design']
+    },
+    {
+        name: 'Sustainability & Environment',
+        labels: ['sustainability', 'environment', 'green', 'climate'],
+        skills: ['Renewable Energy', 'Climate Tech', 'ESG', 'Sustainability']
+    },
+    {
+        name: 'Gaming & Esports',
+        labels: ['gaming', 'esports', 'game'],
+        skills: ['Game Design', 'Unity', 'Unreal', 'Game Dev', 'Shoutcasting']
+    },
+    {
+        name: 'Research & Science',
+        labels: ['research', 'science', 'academic'],
+        skills: ['Research Methods', 'Statistics', 'Lab Work', 'Academic Writing']
+    },
+    {
+        name: 'Other',
+        labels: ['other'],
+        skills: []
+    }
+];
 
 // Course title keywords to skill mapping
 const COURSE_KEYWORDS_SKILLS = {
@@ -110,20 +175,50 @@ function matchesKeywords(text, keywords) {
 /**
  * Extract relevant skills from contest tags
  */
-function getContestRelatedSkills(tags = []) {
-    const skills = new Set();
+function resolveContestCategory(rawCategory = '', tags = []) {
+    const candidates = [rawCategory, ...tags].map(normalizeString).filter(Boolean);
+    for (const candidate of candidates) {
+        for (const def of CONTEST_CATEGORY_SKILLS) {
+            if (def.labels.some(label => candidate.includes(normalizeString(label)))) {
+                return def.name;
+            }
+        }
+    }
+    return '';
+}
 
-    tags.forEach(tag => {
-        const normalizedTag = normalizeString(tag);
-        // Check each category
-        Object.entries(CONTEST_CATEGORY_SKILLS).forEach(([category, categorySkills]) => {
-            if (normalizedTag.includes(normalizeString(category))) {
-                categorySkills.forEach(skill => skills.add(skill));
+/**
+ * Extract relevant skills from contest tags/category
+ */
+function getContestRelatedSkills(tags = [], category = '') {
+    const skills = new Set();
+    const matchedDefinitions = new Set();
+
+    const addSkillsForToken = (token) => {
+        const normalizedToken = normalizeString(token);
+        if (!normalizedToken) return;
+
+        CONTEST_CATEGORY_SKILLS.forEach(def => {
+            if (def.labels.some(label => normalizedToken.includes(normalizeString(label)))) {
+                matchedDefinitions.add(def.name);
+                def.skills.forEach(skill => skills.add(skill));
             }
         });
-        // Also add the tag itself as potential match
-        skills.add(tag);
-    });
+        // Keep original tag as potential direct match
+        skills.add(token);
+    };
+
+    tags.forEach(addSkillsForToken);
+    addSkillsForToken(category);
+
+    // If nothing matched but we have a resolvable category, add its skills
+    if (matchedDefinitions.size === 0) {
+        const resolved = resolveContestCategory(category, tags);
+        const def = CONTEST_CATEGORY_SKILLS.find(d => d.name === resolved);
+        if (def) {
+            def.skills.forEach(skill => skills.add(skill));
+        }
+    }
 
     return Array.from(skills);
 }
@@ -175,7 +270,7 @@ function calculateContestScore(contest, userProfile) {
         ...(matchingProfile.secondaryRoles || [])
     ].filter(Boolean);
 
-    const contestRelatedSkills = getContestRelatedSkills(contestTags);
+    const contestRelatedSkills = getContestRelatedSkills(contestTags, contest.category);
     const skillOverlap = calculateOverlapScore(userSkills, contestRelatedSkills);
     score += skillOverlap * 30;
 
@@ -302,12 +397,41 @@ export async function getRecommendedContests(userId, options = {}) {
             userRegistrations.map(r => r.contestId?.toString()).filter(Boolean)
         );
 
-        // Get active contests
+        // Get active contests (OPEN/FULL and not past deadline)
         const now = new Date().toISOString();
-        const contests = await contestsCollection.find({
+        const activeContests = await contestsCollection.find({
             status: { $in: ['OPEN', 'FULL'] },
             deadline: { $gte: now }
         }).toArray();
+
+        let contests = activeContests;
+
+        // Fallback: if not enough active contests, include recent OPEN/FULL even if deadline passed
+        if (contests.length < limit) {
+            const fallbackOpen = await contestsCollection.find({
+                status: { $in: ['OPEN', 'FULL'] },
+                deadline: { $lt: now }
+            })
+                .sort({ deadline: -1, createdAt: -1 })
+                .limit(limit - contests.length)
+                .toArray();
+
+            const existingIds = new Set(contests.map(c => c._id?.toString()));
+            contests = [...contests, ...fallbackOpen.filter(c => !existingIds.has(c._id?.toString()))];
+        }
+
+        // Last fallback: if still short, include recent closed contests to fill the list
+        if (contests.length < limit) {
+            const fallbackClosed = await contestsCollection.find({
+                status: { $nin: ['OPEN', 'FULL'] }
+            })
+                .sort({ deadline: -1, createdAt: -1 })
+                .limit(limit - contests.length)
+                .toArray();
+
+            const existingIds = new Set(contests.map(c => c._id?.toString()));
+            contests = [...contests, ...fallbackClosed.filter(c => !existingIds.has(c._id?.toString()))];
+        }
 
         if (contests.length === 0) {
             return [];
@@ -348,7 +472,7 @@ export async function getRecommendedContests(userId, options = {}) {
  * @returns {Promise<Array>} Sorted array of courses with scores (scores hidden from response)
  */
 export async function getRecommendedCourses(userId, options = {}) {
-    const { limit = 4 } = options;
+    const { limit = 3 } = options;
 
     // Check cache
     const cacheKey = `courses:${userId}:${limit}`;
@@ -360,7 +484,7 @@ export async function getRecommendedCourses(userId, options = {}) {
     try {
         const usersCollection = getCollection('users');
         const coursesCollection = getCollection('courses');
-        const enrollmentsCollection = getCollection('courseEnrollments');
+        const enrollmentsCollection = getCollection('enrollments');
 
         // Get user profile
         const user = await usersCollection.findOne(
@@ -374,7 +498,10 @@ export async function getRecommendedCourses(userId, options = {}) {
 
         // Get user's enrolled course IDs to exclude
         const userEnrollments = await enrollmentsCollection.find(
-            { userId: userId, status: { $in: ['active', 'completed'] } },
+            {
+                userId: new ObjectId(userId),
+                status: { $in: ['active', 'completed'] }
+            },
             { projection: { courseId: 1 } }
         ).toArray();
 
@@ -383,7 +510,11 @@ export async function getRecommendedCourses(userId, options = {}) {
         );
 
         // Get all courses
-        const courses = await coursesCollection.find({}).toArray();
+        // Only recommend active/public courses
+        const courses = await coursesCollection.find({
+            deletedAt: { $exists: false },
+            isPublic: { $ne: false }
+        }).toArray();
 
         if (courses.length === 0) {
             return [];

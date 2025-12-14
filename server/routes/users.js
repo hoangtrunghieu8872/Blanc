@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { ObjectId } from 'mongodb';
 import bcrypt from 'bcryptjs';
 import { connectToDatabase, getCollection } from '../lib/db.js';
+import { getVietnamStartOfDay } from '../lib/time.js';
 import { authGuard } from '../middleware/auth.js';
 import { invalidateUserCache } from '../lib/matchingEngine.js';
 
@@ -966,22 +967,6 @@ router.patch('/me/notifications/:notificationId/read', authGuard, async (req, re
 // ============ STREAK ENDPOINTS ============
 
 /**
- * Helper: Get start of day in UTC+7 (Vietnam timezone)
- */
-function getVietnamStartOfDay(date = new Date()) {
-    // Vietnam is UTC+7
-    const vietnamOffset = 7 * 60 * 60 * 1000;
-    const utcTime = date.getTime() + (date.getTimezoneOffset() * 60 * 1000);
-    const vietnamTime = new Date(utcTime + vietnamOffset);
-
-    // Get start of day in Vietnam
-    vietnamTime.setHours(0, 0, 0, 0);
-
-    // Convert back to UTC for storage
-    return new Date(vietnamTime.getTime() - vietnamOffset);
-}
-
-/**
  * Helper: Calculate streak from activity log
  */
 function calculateStreak(activityDates, today) {
@@ -1092,93 +1077,156 @@ router.post('/streak/checkin', authGuard, async (req, res, next) => {
         const streakCollection = getCollection('user_streaks');
 
         const today = getVietnamStartOfDay();
+        const oneDayMs = 24 * 60 * 60 * 1000;
         const now = new Date();
+        const yesterdayStart = new Date(today.getTime() - oneDayMs);
+        const tomorrowStart = new Date(today.getTime() + oneDayMs);
+        const ninetyDaysAgo = new Date(now.getTime() - 90 * oneDayMs);
 
-        // Get existing streak data
-        let streakData = await streakCollection.findOne({ userId });
+        // Atomic, idempotent check-in (safe under concurrent requests)
+        const updatePipeline = [
+            {
+                $set: {
+                    userId,
+                    createdAt: { $ifNull: ['$createdAt', now] },
+                    currentStreak: { $ifNull: ['$currentStreak', 0] },
+                    longestStreak: { $ifNull: ['$longestStreak', 0] },
+                    activityDates: { $ifNull: ['$activityDates', []] },
+                    lastActivityDate: { $ifNull: ['$lastActivityDate', null] },
+                    updatedAt: { $ifNull: ['$updatedAt', now] }
+                }
+            },
+            {
+                $set: {
+                    _already: {
+                        $and: [
+                            { $ne: ['$lastActivityDate', null] },
+                            { $gte: ['$lastActivityDate', today] },
+                            { $lt: ['$lastActivityDate', tomorrowStart] }
+                        ]
+                    },
+                    _isConsecutive: {
+                        $and: [
+                            { $ne: ['$lastActivityDate', null] },
+                            { $gte: ['$lastActivityDate', yesterdayStart] },
+                            { $lt: ['$lastActivityDate', today] }
+                        ]
+                    }
+                }
+            },
+            {
+                $set: {
+                    _newStreak: {
+                        $cond: [
+                            '$_already',
+                            '$currentStreak',
+                            { $cond: ['$_isConsecutive', { $add: ['$currentStreak', 1] }, 1] }
+                        ]
+                    }
+                }
+            },
+            {
+                $set: {
+                    currentStreak: '$_newStreak',
+                    longestStreak: { $max: ['$longestStreak', '$_newStreak'] },
+                    lastActivityDate: { $cond: ['$_already', '$lastActivityDate', now] },
+                    updatedAt: { $cond: ['$_already', '$updatedAt', now] },
+                    activityDates: {
+                        $cond: [
+                            '$_already',
+                            '$activityDates',
+                            {
+                                $let: {
+                                    vars: {
+                                        combined: { $concatArrays: ['$activityDates', [now]] }
+                                    },
+                                    in: {
+                                        $filter: {
+                                            input: '$$combined',
+                                            as: 'd',
+                                            cond: { $gte: ['$$d', ninetyDaysAgo] }
+                                        }
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                }
+            },
+            { $unset: ['_already', '_isConsecutive', '_newStreak'] }
+        ];
 
-        if (!streakData) {
-            // First check-in ever
-            streakData = {
-                userId,
-                currentStreak: 1,
-                longestStreak: 1,
-                lastActivityDate: now,
-                activityDates: [now],
-                createdAt: now,
-                updatedAt: now
-            };
+        let beforeDoc;
+        try {
+            const result = await streakCollection.findOneAndUpdate(
+                { userId },
+                updatePipeline,
+                { upsert: true, returnDocument: 'before' }
+            );
+            beforeDoc = result?.value ?? null;
+        } catch (err) {
+            // If two concurrent upserts race, one may lose with a duplicate key error; retry as a normal update.
+            if (err?.code === 11000) {
+                const result = await streakCollection.findOneAndUpdate(
+                    { userId },
+                    updatePipeline,
+                    { upsert: false, returnDocument: 'before' }
+                );
+                beforeDoc = result?.value ?? null;
+            } else {
+                throw err;
+            }
+        }
 
-            await streakCollection.insertOne(streakData);
-
+        if (!beforeDoc) {
             return res.json({
                 currentStreak: 1,
                 longestStreak: 1,
+                lastActivityDate: now,
                 todayCheckedIn: true,
                 isNewStreak: true,
                 message: 'Chào mừng! Bạn đã bắt đầu chuỗi học tập.'
             });
         }
 
-        const lastActivity = streakData.lastActivityDate
-            ? getVietnamStartOfDay(new Date(streakData.lastActivityDate))
+        const lastActivity = beforeDoc.lastActivityDate
+            ? getVietnamStartOfDay(new Date(beforeDoc.lastActivityDate))
             : null;
 
         // Already checked in today
         if (lastActivity && lastActivity.getTime() === today.getTime()) {
             return res.json({
-                currentStreak: streakData.currentStreak,
-                longestStreak: streakData.longestStreak,
+                currentStreak: beforeDoc.currentStreak || 0,
+                longestStreak: beforeDoc.longestStreak || 0,
+                lastActivityDate: beforeDoc.lastActivityDate,
                 todayCheckedIn: true,
                 isNewStreak: false,
                 message: 'Bạn đã điểm danh hôm nay.'
             });
         }
 
-        const yesterdayStart = new Date(today.getTime() - 24 * 60 * 60 * 1000);
         let newStreak;
         let message;
-
         if (lastActivity && lastActivity.getTime() === yesterdayStart.getTime()) {
-            // Consecutive day - increment streak
-            newStreak = (streakData.currentStreak || 0) + 1;
+            newStreak = (beforeDoc.currentStreak || 0) + 1;
             message = `Tuyệt vời! Chuỗi ${newStreak} ngày liên tiếp! 🔥`;
         } else {
-            // Streak broken or first activity
             newStreak = 1;
-            if (streakData.currentStreak > 1) {
+            if ((beforeDoc.currentStreak || 0) > 1) {
                 message = `Chuỗi đã bị gián đoạn. Hãy bắt đầu lại! 💪`;
             } else {
                 message = 'Chào mừng trở lại! Hãy duy trì học tập mỗi ngày.';
             }
         }
 
-        const newLongest = Math.max(streakData.longestStreak || 0, newStreak);
-
-        // Keep only last 90 days of activity
-        const activityDates = streakData.activityDates || [];
-        activityDates.push(now);
-        const ninetyDaysAgo = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
-        const trimmedDates = activityDates.filter(d => new Date(d) >= ninetyDaysAgo);
-
-        await streakCollection.updateOne(
-            { userId },
-            {
-                $set: {
-                    currentStreak: newStreak,
-                    longestStreak: newLongest,
-                    lastActivityDate: now,
-                    activityDates: trimmedDates,
-                    updatedAt: now
-                }
-            }
-        );
+        const newLongest = Math.max(beforeDoc.longestStreak || 0, newStreak);
 
         res.json({
             currentStreak: newStreak,
             longestStreak: newLongest,
+            lastActivityDate: now,
             todayCheckedIn: true,
-            isNewStreak: newStreak === 1 && (streakData.currentStreak || 0) > 1,
+            isNewStreak: newStreak === 1 && (beforeDoc.currentStreak || 0) > 1,
             message
         });
     } catch (error) {

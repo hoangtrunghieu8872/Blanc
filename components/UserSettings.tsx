@@ -637,6 +637,11 @@ const UserSettings: React.FC = () => {
             const presignData = await api.post<{
                 uploadUrl: string;
                 fileName: string;
+                folder: string;
+                mimeType: string;
+                nonce: string;
+                timestamp: number;
+                signature: string;
             }>('/media/presign', {
                 mimeType: file.type,
                 folder: 'avatars'
@@ -646,7 +651,11 @@ const UserSettings: React.FC = () => {
             const formData = new FormData();
             formData.append('file', file);
             formData.append('fileName', presignData.fileName);
-            formData.append('folder', 'avatars');
+            formData.append('folder', presignData.folder);
+            formData.append('mimeType', presignData.mimeType);
+            formData.append('nonce', presignData.nonce);
+            formData.append('timestamp', String(presignData.timestamp));
+            formData.append('signature', presignData.signature);
 
             const uploadResponse = await fetch(presignData.uploadUrl, {
                 method: 'POST',

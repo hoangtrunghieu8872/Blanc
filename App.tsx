@@ -14,6 +14,7 @@ import Auth from './pages/Auth';
 import { ContestList, ContestDetail } from './pages/Contests';
 import { Marketplace, CourseDetail } from './pages/Marketplace';
 import Community from './pages/Community';
+import News from './pages/News';
 import Profile from './pages/Profile';
 import UserProfile from './pages/UserProfile';
 import MyTeamPosts from './pages/MyTeamPosts';
@@ -142,6 +143,7 @@ const App: React.FC = () => {
                     <Route path="/marketplace" element={<Marketplace />} />
                     <Route path="/courses/:id" element={<CourseDetail />} />
                     <Route path="/community" element={<Community />} />
+                    <Route path="/news" element={<News />} />
                     <Route path="/reports" element={user ? <Reports /> : <Navigate to="/login" replace />} />
                     <Route path="/reports/new" element={user ? <ReportTemplates /> : <Navigate to="/login" replace />} />
                     <Route path="/profile" element={user ? <Profile /> : <Navigate to="/login" replace />} />

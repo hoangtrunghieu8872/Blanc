@@ -75,14 +75,14 @@ async function sendNotification(data) {
 /**
  * Send system notification/announcement email
  */
-export async function sendSystemNotification({ to, title, message }) {
+export async function sendSystemNotification({ to, title, message, severity = 'info', userName = '' }) {
     return sendNotification({
         action: 'announcement',
         email: to,
-        userName: '',
+        userName: userName || '',
         title,
         message,
-        severity: 'info'
+        severity
     });
 }
 

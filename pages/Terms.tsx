@@ -117,7 +117,7 @@ Vui lòng đọc kỹ các điều khoản này trước khi sử dụng nền t
           <h3 className="text-xl font-semibold mb-2">Có câu hỏi?</h3>
           <p className="opacity-90 mb-4">Liên hệ với chúng tôi nếu bạn cần hỗ trợ về điều khoản sử dụng</p>
           <a 
-            href="mailto:dangthhfct31147@gmail.com"
+            href="mailto:clbflife2025thptfptcantho@gmail.com"
             className="inline-flex items-center gap-2 bg-white text-primary-600 px-6 py-2 rounded-full font-medium hover:bg-opacity-90 transition-colors"
           >
             Liên hệ hỗ trợ

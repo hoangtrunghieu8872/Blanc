@@ -1,8 +1,8 @@
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom';
-import { Menu, X, Bell, User as UserIcon, LogOut, ChevronDown, Check, Trophy, Users, Info, BookOpen, Loader2, FileText, Flame, BarChart3 } from 'lucide-react';
-import { Button } from './ui/Common';
+import { Menu, X, Bell, User as UserIcon, LogOut, ChevronDown, Check, Trophy, Users, Info, BookOpen, Loader2, FileText, BarChart3, Mail, Phone, ShieldCheck, Rocket, Sparkles } from 'lucide-react';
+import { Button, cn } from './ui/Common';
 import { User, Notification } from '../types';
 import { api } from '../lib/api';
 import { useStreak } from '../lib/hooks';
@@ -30,6 +30,7 @@ const Layout: React.FC<LayoutProps> = ({ user, onLogout }) => {
     { name: 'Cuộc thi', path: '/contests' },
     { name: 'Khóa học', path: '/marketplace' },
     { name: 'Cộng đồng', path: '/community' },
+    { name: 'Bản tin', path: '/news' },
   ];
 
   const unreadCount = notifications.filter(n => !n.isRead).length;
@@ -138,13 +139,33 @@ const Layout: React.FC<LayoutProps> = ({ user, onLogout }) => {
     return date.toLocaleDateString('vi-VN');
   };
 
-  // Streak Badge Component with milestone animations
+  // Streak Badge Component (animated, milestone-aware)
   const StreakBadge: React.FC = () => {
-    const { currentStreak, todayCheckedIn, isLoading } = useStreak({ autoCheckin: !!user });
+    const { currentStreak, todayCheckedIn, isLoading, message } = useStreak({ autoCheckin: !!user, userId: user?.id });
+
+    const prevStreakRef = useRef<number | null>(null);
+    const [isCelebrating, setIsCelebrating] = useState(false);
+
+    useEffect(() => {
+      const prev = prevStreakRef.current;
+      prevStreakRef.current = currentStreak;
+      if (todayCheckedIn && prev !== null && currentStreak > prev) {
+        setIsCelebrating(true);
+        const timer = window.setTimeout(() => setIsCelebrating(false), 650);
+        return () => window.clearTimeout(timer);
+      }
+    }, [currentStreak, todayCheckedIn]);
+
+    useEffect(() => {
+      if (!message) return;
+      setIsCelebrating(true);
+      const timer = window.setTimeout(() => setIsCelebrating(false), 650);
+      return () => window.clearTimeout(timer);
+    }, [message]);
 
     if (isLoading) {
       return (
-        <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-100 rounded-full">
+        <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-100 rounded-full ring-1 ring-slate-200/60">
           <Loader2 className="w-4 h-4 animate-spin text-slate-400" />
         </div>
       );
@@ -155,8 +176,6 @@ const Layout: React.FC<LayoutProps> = ({ user, onLogout }) => {
       if (!todayCheckedIn) {
         return {
           containerClass: 'bg-slate-100 text-slate-500',
-          flameClass: 'text-slate-400',
-          badge: null,
           glow: ''
         };
       }
@@ -165,8 +184,6 @@ const Layout: React.FC<LayoutProps> = ({ user, onLogout }) => {
       if (currentStreak >= 100) {
         return {
           containerClass: 'bg-linear-to-r from-violet-500 via-purple-500 to-fuchsia-500 text-white shadow-lg shadow-purple-300',
-          flameClass: 'animate-fire text-red-500 drop-shadow-[0_0_8px_rgba(239,68,68,0.8)]',
-          badge: '👑',
           glow: 'ring-2 ring-purple-300 ring-offset-1'
         };
       }
@@ -175,8 +192,6 @@ const Layout: React.FC<LayoutProps> = ({ user, onLogout }) => {
       if (currentStreak >= 30) {
         return {
           containerClass: 'bg-linear-to-r from-amber-400 via-orange-500 to-red-500 text-white shadow-md shadow-orange-200',
-          flameClass: 'animate-fire text-red-400 drop-shadow-[0_0_6px_rgba(248,113,113,0.7)]',
-          badge: '⭐',
           glow: 'ring-2 ring-orange-200 ring-offset-1'
         };
       }
@@ -185,8 +200,6 @@ const Layout: React.FC<LayoutProps> = ({ user, onLogout }) => {
       if (currentStreak >= 14) {
         return {
           containerClass: 'bg-linear-to-r from-orange-400 to-red-500 text-white shadow-md shadow-red-100',
-          flameClass: 'animate-fire text-red-500 drop-shadow-[0_0_5px_rgba(239,68,68,0.6)]',
-          badge: '🔥',
           glow: ''
         };
       }
@@ -195,8 +208,6 @@ const Layout: React.FC<LayoutProps> = ({ user, onLogout }) => {
       if (currentStreak >= 7) {
         return {
           containerClass: 'bg-linear-to-r from-yellow-400 to-orange-500 text-white shadow-sm',
-          flameClass: 'animate-fire text-orange-500 drop-shadow-[0_0_4px_rgba(249,115,22,0.6)]',
-          badge: '🔥',
           glow: ''
         };
       }
@@ -205,8 +216,6 @@ const Layout: React.FC<LayoutProps> = ({ user, onLogout }) => {
       if (currentStreak >= 3) {
         return {
           containerClass: 'bg-linear-to-r from-emerald-400 to-teal-500 text-white',
-          flameClass: 'animate-fire text-orange-400',
-          badge: '✨',
           glow: ''
         };
       }
@@ -214,8 +223,6 @@ const Layout: React.FC<LayoutProps> = ({ user, onLogout }) => {
       // 1-2 days - New
       return {
         containerClass: 'bg-linear-to-r from-green-400 to-emerald-500 text-white',
-        flameClass: 'animate-fire text-red-400',
-        badge: null,
         glow: ''
       };
     };
@@ -225,34 +232,65 @@ const Layout: React.FC<LayoutProps> = ({ user, onLogout }) => {
     return (
       <NavLink
         to="/profile"
-        className={`
-          group relative flex items-center gap-1.5 px-3 py-1.5 rounded-full 
-          transition-all duration-300 ease-out
-          hover:scale-110 hover:shadow-lg active:scale-95
-          ${style.containerClass} ${style.glow}
-        `}
+        className={cn(
+          'group relative inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-sm font-semibold tabular-nums',
+          'ring-1 ring-inset transition-all duration-200',
+          'hover:-translate-y-0.5 hover:shadow-lg active:translate-y-0 active:shadow-sm',
+          'focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500',
+          todayCheckedIn ? 'ring-white/25 overflow-hidden' : 'ring-slate-200/70',
+          style.containerClass,
+          style.glow,
+        )}
         title={`Chuỗi học tập: ${currentStreak} ngày${todayCheckedIn ? ' ✓' : ''}`}
       >
-        {/* Animated flame icon */}
-        <Flame className={`w-4 h-4 transition-transform ${style.flameClass}`} />
+        {todayCheckedIn && currentStreak >= 3 && (
+          <span
+            className="pointer-events-none absolute inset-y-0 left-0 w-[42%] bg-linear-to-r from-white/0 via-white/45 to-white/0 opacity-35 animate-streak-shine"
+            aria-hidden="true"
+          />
+        )}
 
-        {/* Streak number with pop animation on hover */}
-        <span className="text-sm font-bold transition-transform group-hover:scale-110">
+          <span
+            className={cn(
+              'relative grid place-items-center w-6 h-6 overflow-visible',
+            )}
+            aria-hidden="true"
+          >
+           {todayCheckedIn ? (
+             <>
+                <img
+                 src="/streak/flame-tight.gif"
+                 className="streak-motion w-[150%] h-[150%] -translate-y-[18%] object-contain mix-blend-screen brightness-110 saturate-150 contrast-125 drop-shadow-[0_3px_10px_rgba(0,0,0,0.25)]"
+                 alt=""
+                 aria-hidden="true"
+               />
+                <img
+                  src="/streak/flame-tight.png"
+                 className="streak-reduce-motion w-[150%] h-[150%] -translate-y-[18%] object-contain mix-blend-screen brightness-110 saturate-150 contrast-125 drop-shadow-[0_3px_10px_rgba(0,0,0,0.25)]"
+                  alt=""
+                  aria-hidden="true"
+                />
+              </>
+            ) : (
+              <img
+                src="/streak/flame-tight.png"
+                className="w-[150%] h-[150%] -translate-y-[18%] object-contain mix-blend-screen opacity-60 grayscale"
+                alt=""
+                aria-hidden="true"
+              />
+            )}
+          </span>
+
+        <span className={cn('relative font-extrabold leading-none', isCelebrating ? 'animate-streak-pop' : '')}>
           {currentStreak}
         </span>
 
-        {/* Milestone badge */}
-        {style.badge && (
-          <span className="text-xs animate-bounce [animation-duration:2s]">
-            {style.badge}
-          </span>
-        )}
+        {/* star removed */}
 
-        {/* Sparkle effect for high streaks */}
         {currentStreak >= 30 && todayCheckedIn && (
-          <span className="absolute -top-1 -right-1 flex h-3 w-3">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-yellow-400 opacity-75"></span>
-            <span className="relative inline-flex rounded-full h-3 w-3 bg-yellow-300"></span>
+          <span className="absolute -top-1 -right-1 flex h-3.5 w-3.5" aria-hidden="true">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white/80 opacity-50"></span>
+            <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-white/70"></span>
           </span>
         )}
       </NavLink>
@@ -464,7 +502,8 @@ const Layout: React.FC<LayoutProps> = ({ user, onLogout }) => {
                     {/* Mobile Streak Display */}
                     <div className="px-3 py-2 flex items-center justify-between">
                       <div className="flex items-center gap-2">
-                        <Flame className="w-5 h-5 text-orange-500" />
+                        <img src="/streak/flame-tight.gif" className="streak-motion w-5 h-5 object-contain mix-blend-screen" alt="" aria-hidden="true" />
+                        <img src="/streak/flame-tight.png" className="streak-reduce-motion w-5 h-5 object-contain mix-blend-screen" alt="" aria-hidden="true" />
                         <span className="font-medium text-slate-700">Chuỗi học tập</span>
                       </div>
                       <StreakBadge />
@@ -513,71 +552,168 @@ const Layout: React.FC<LayoutProps> = ({ user, onLogout }) => {
       {!hideFooter && (
         <footer className="bg-white border-t border-slate-200 py-12">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
-              <div className="col-span-1 md:col-span-1">
-                <div className="flex items-center mb-4">
-                  <img src="/logo.png" alt="Blanc Logo" className="h-10 w-10 rounded-full object-cover mr-2" />
-                  <div className="flex flex-col">
-                    <span className="text-sm font-semibold text-slate-800 leading-tight">Beyond Learning</span>
-                    <span className="text-xs text-slate-500 leading-tight">And New Challenges</span>
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8 items-stretch">
+              <div className="col-span-1 lg:col-span-3">
+                <div className="relative overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-lg shadow-slate-200/60 p-6 h-full flex flex-col">
+                  <div className="absolute inset-0 bg-gradient-to-br from-indigo-50 via-white to-sky-50 opacity-80" aria-hidden="true"></div>
+                  <div className="relative">
+                    <div className="flex items-center mb-4">
+                      <img src="/logo.png" alt="Blanc Logo" className="h-10 w-10 rounded-full object-cover mr-3 shadow-sm" />
+                      <div className="flex flex-col">
+                        <span className="text-sm font-semibold text-slate-800 leading-tight">Beyond Learning</span>
+                        <span className="text-xs text-slate-500 leading-tight">And New Challenges</span>
+                      </div>
+                    </div>
+                    <p className="text-slate-600 text-sm leading-relaxed mb-4">
+                      Nền tảng kết nối tri thức, nâng tầm bản thân qua các cuộc thi và khóa học chất lượng cao.
+                    </p>
+                    <div className="space-y-2 text-sm text-slate-600">
+                      <div className="flex items-start gap-2">
+                        <ShieldCheck className="w-4 h-4 text-indigo-500 mt-0.5" />
+                        <span>Cam kết bảo mật và đồng hành cùng học viên.</span>
+                      </div>
+                      <div className="flex items-start gap-2">
+                        <Rocket className="w-4 h-4 text-sky-500 mt-0.5" />
+                        <span>Lộ trình học và thi được cập nhật liên tục.</span>
+                      </div>
+                      <div className="flex items-start gap-2">
+                        <Sparkles className="w-4 h-4 text-amber-500 mt-0.5" />
+                        <span>Cộng đồng năng động, hỗ trợ 24/7.</span>
+                      </div>
+                    </div>
+                    <div className="mt-5 flex flex-wrap gap-2">
+                      <span className="px-3 py-1 rounded-full bg-indigo-50 text-indigo-600 text-xs font-semibold">Blanc Community</span>
+                      <span className="px-3 py-1 rounded-full bg-emerald-50 text-emerald-600 text-xs font-semibold">Học & Thi</span>
+                    </div>
                   </div>
                 </div>
-                <p className="text-slate-500 text-sm leading-relaxed">
-                  Nền tảng kết nối tri thức, nâng tầm bản thân qua các cuộc thi và khóa học chất lượng cao.
-                </p>
               </div>
 
-              <div>
-                <h3 className="text-sm font-semibold text-slate-900 uppercase tracking-wider mb-4">Nền tảng</h3>
-                <ul className="space-y-3">
-                  <li><a href="#" className="text-slate-500 hover:text-primary-600 text-sm">Cuộc thi</a></li>
-                  <li><a href="#" className="text-slate-500 hover:text-primary-600 text-sm">Khóa học</a></li>
-                  <li><a href="https://www.facebook.com/profile.php?id=61584015058767" target="_blank" rel="noopener noreferrer" className="text-slate-500 hover:text-primary-600 text-sm">Đối tác</a></li>
-                </ul>
+              <div className="col-span-1 lg:col-span-3">
+                <div className="relative overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-md shadow-slate-200/40 p-6 h-full flex flex-col">
+                  <div className="absolute inset-0 bg-gradient-to-br from-slate-50 via-white to-indigo-50 opacity-60" aria-hidden="true"></div>
+                  <div className="relative flex flex-col gap-4 h-full">
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <h3 className="text-sm font-semibold text-slate-900 uppercase tracking-wider mb-1">Hỗ trợ</h3>
+                        <p className="text-xs text-slate-500">Tài liệu & hỗ trợ kỹ thuật</p>
+                      </div>
+                      <span className="px-3 py-1 rounded-full bg-indigo-50 text-indigo-600 text-xs font-semibold">Online</span>
+                    </div>
+                    <ul className="space-y-3">
+                      <li><NavLink to="/terms" className="text-slate-500 hover:text-primary-600 text-sm">Điều khoản sử dụng</NavLink></li>
+                      <li><NavLink to="/privacy" className="text-slate-500 hover:text-primary-600 text-sm">Chính sách bảo mật</NavLink></li>
+                      <li><a href="mailto:clbflife2025thptfptcantho@gmail.com?subject=Li%C3%AAn%20h%E1%BB%87%20t%E1%BB%AB%20Blanc&body=Xin%20ch%C3%A0o%2C%0A%0AT%C3%B4i%20mu%E1%BB%91n%20li%C3%AAn%20h%E1%BB%87%20v%E1%BB%81..." className="text-slate-500 hover:text-primary-600 text-sm">Liên hệ</a></li>
+                    </ul>
+                    <div className="mt-auto inline-flex items-center gap-2 px-3 py-2 rounded-full bg-slate-50 text-slate-600 text-xs font-medium">
+                      <Sparkles className="w-4 h-4 text-indigo-500" /> Sẵn sàng hỗ trợ trong giờ hành chính
+                    </div>
+                  </div>
+                </div>
               </div>
 
-              <div>
-                <h3 className="text-sm font-semibold text-slate-900 uppercase tracking-wider mb-4">Hỗ trợ</h3>
-                <ul className="space-y-3">
-                  <li><NavLink to="/terms" className="text-slate-500 hover:text-primary-600 text-sm">Điều khoản sử dụng</NavLink></li>
-                  <li><NavLink to="/privacy" className="text-slate-500 hover:text-primary-600 text-sm">Chính sách bảo mật</NavLink></li>
-                  <li><a href="mailto:dangthhfct31147@gmail.com?subject=Li%C3%AAn%20h%E1%BB%87%20t%E1%BB%AB%20Blanc&body=Xin%20ch%C3%A0o%2C%0A%0AT%C3%B4i%20mu%E1%BB%91n%20li%C3%AAn%20h%E1%BB%87%20v%E1%BB%81..." className="text-slate-500 hover:text-primary-600 text-sm">Liên hệ</a></li>
-                </ul>
-              </div>
+              <div className="lg:col-span-6">
+                <div className="relative overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-xl shadow-slate-200/50">
+                  <div className="absolute inset-0 bg-gradient-to-r from-sky-50 via-white to-indigo-50 opacity-80" aria-hidden="true"></div>
+                  <div className="relative px-6 py-8 md:px-10 md:py-10">
+                    <div className="text-center">
+                      <h3 className="text-sm font-semibold text-slate-900 uppercase tracking-wider mb-2">Liên hệ</h3>
+                      <p className="text-slate-500 text-sm">Đội ngũ Blanc sẽ phản hồi trong 24 giờ làm việc</p>
+                    </div>
 
-              <div>
-                <h3 className="text-sm font-semibold text-slate-900 uppercase tracking-wider mb-4">Liên hệ</h3>
-                <ul className="space-y-3">
-                  <li className="text-slate-500 text-sm">dangthhfct31147@gmail.com</li>
-                  <li className="text-slate-500 text-sm">+84 339 122 620</li>
-                  <li className="flex space-x-4 mt-4">
-                    {/* Social Links */}
-                    <a
-                      href="https://www.facebook.com/hai.ang.782631/"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="w-8 h-8 bg-slate-100 rounded-full flex items-center justify-center text-slate-400 hover:bg-[#1877F2] hover:text-white transition-colors"
-                      title="Facebook"
-                    >
-                      <span className="sr-only">Facebook</span>
-                      <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                        <path fillRule="evenodd" d="M22 12c0-5.523-4.477-10-10-10S2 6.477 2 12c0 4.991 3.657 9.128 8.438 9.878v-6.987h-2.54V12h2.54V9.797c0-2.506 1.492-3.89 3.777-3.89 1.094 0 2.238.195 2.238.195v2.46h-1.26c-1.243 0-1.63.771-1.63 1.562V12h2.773l-.443 2.89h-2.33v6.988C18.343 21.128 22 16.991 22 12z" clipRule="evenodd" />
-                      </svg>
-                    </a>
-                    <a
-                      href="https://www.tiktok.com/@mrhomeless_12"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="w-8 h-8 bg-slate-100 rounded-full flex items-center justify-center text-slate-400 hover:bg-black hover:text-white transition-colors"
-                      title="TikTok"
-                    >
-                      <span className="sr-only">TikTok</span>
-                      <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                        <path d="M12.525.02c1.31-.02 2.61-.01 3.91-.02.08 1.53.63 3.09 1.75 4.17 1.12 1.11 2.7 1.62 4.24 1.79v4.03c-1.44-.05-2.89-.35-4.2-.97-.57-.26-1.1-.59-1.62-.93-.01 2.92.01 5.84-.02 8.75-.08 1.4-.54 2.79-1.35 3.94-1.31 1.92-3.58 3.17-5.91 3.21-1.43.08-2.86-.31-4.08-1.03-2.02-1.19-3.44-3.37-3.65-5.71-.02-.5-.03-1-.01-1.49.18-1.9 1.12-3.72 2.58-4.96 1.66-1.44 3.98-2.13 6.15-1.72.02 1.48-.04 2.96-.04 4.44-.99-.32-2.15-.23-3.02.37-.63.41-1.11 1.04-1.36 1.75-.21.51-.15 1.07-.14 1.61.24 1.64 1.82 3.02 3.5 2.87 1.12-.01 2.19-.66 2.77-1.61.19-.33.4-.67.41-1.06.1-1.79.06-3.57.07-5.36.01-4.03-.01-8.05.02-12.07z" />
-                      </svg>
-                    </a>
-                  </li>
-                </ul>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 md:gap-8 mt-8">
+                      <div className="rounded-xl border border-white/80 bg-white/70 backdrop-blur-sm p-6 shadow-sm">
+                        <div className="flex items-center gap-3 mb-4">
+                          <div className="w-10 h-10 rounded-full bg-indigo-600 text-white flex items-center justify-center shadow-md shadow-indigo-200">
+                            <Mail className="w-5 h-5" />
+                          </div>
+                          <div>
+                            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-indigo-600">Hòm thư</p>
+                            <p className="text-sm text-slate-500">CLB Blanc</p>
+                          </div>
+                        </div>
+                        <div className="space-y-2">
+                          <p className="text-slate-700 text-sm font-medium break-words">clbflife2025thptfptcantho@gmail.com</p>
+                          <div className="flex items-center gap-2 text-slate-500 text-sm">
+                            <Phone className="w-4 h-4 text-indigo-500" />
+                            <span>+84 916 007 090</span>
+                          </div>
+                        </div>
+                        <div className="flex gap-3 mt-5">
+                          <a
+                            href="https://www.facebook.com/profile.php?id=61584015058767"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="w-10 h-10 rounded-full bg-indigo-50 text-indigo-500 flex items-center justify-center hover:bg-indigo-100 transition-colors shadow-sm"
+                            title="Facebook"
+                          >
+                            <span className="sr-only">Facebook</span>
+                            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                              <path fillRule="evenodd" d="M22 12c0-5.523-4.477-10-10-10S2 6.477 2 12c0 4.991 3.657 9.128 8.438 9.878v-6.987h-2.54V12h2.54V9.797c0-2.506 1.492-3.89 3.777-3.89 1.094 0 2.238.195 2.238.195v2.46h-1.26c-1.243 0-1.63.771-1.63 1.562V12h2.773l-.443 2.89h-2.33v6.988C18.343 21.128 22 16.991 22 12z" clipRule="evenodd" />
+                            </svg>
+                          </a>
+                          <a
+                            href="https://www.tiktok.com/@blancfpt"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="w-10 h-10 rounded-full bg-slate-100 text-slate-500 flex items-center justify-center hover:bg-slate-200 transition-colors shadow-sm"
+                            title="TikTok"
+                          >
+                            <span className="sr-only">TikTok</span>
+                            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                              <path d="M12.525.02c1.31-.02 2.61-.01 3.91-.02.08 1.53.63 3.09 1.75 4.17 1.12 1.11 2.7 1.62 4.24 1.79v4.03c-1.44-.05-2.89-.35-4.2-.97-.57-.26-1.1-.59-1.62-.93-.01 2.92.01 5.84-.02 8.75-.08 1.4-.54 2.79-1.35 3.94-1.31 1.92-3.58 3.17-5.91 3.21-1.43.08-2.86-.31-4.08-1.03-2.02-1.19-3.44-3.37-3.65-5.71-.02-.5-.03-1-.01-1.49.18-1.9 1.12-3.72 2.58-4.96 1.66-1.44 3.98-2.13 6.15-1.72.02 1.48-.04 2.96-.04 4.44-.99-.32-2.15-.23-3.02.37-.63.41-1.11 1.04-1.36 1.75-.21.51-.15 1.07-.14 1.61.24 1.64 1.82 3.02 3.5 2.87 1.12-.01 2.19-.66 2.77-1.61.19-.33.4-.67.41-1.06.1-1.79.06-3.57.07-5.36.01-4.03-.01-8.05.02-12.07z" />
+                            </svg>
+                          </a>
+                        </div>
+                      </div>
+
+                      <div className="rounded-xl border border-white/80 bg-white/70 backdrop-blur-sm p-6 shadow-sm">
+                        <div className="flex items-center gap-3 mb-4">
+                          <div className="w-10 h-10 rounded-full bg-sky-500 text-white flex items-center justify-center shadow-md shadow-sky-200">
+                            <Mail className="w-5 h-5" />
+                          </div>
+                          <div>
+                            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-sky-600">Hòm thư</p>
+                            <p className="text-sm text-slate-500">Trần Hữu Hải Đăng</p>
+                          </div>
+                        </div>
+                        <div className="space-y-2">
+                          <p className="text-slate-700 text-sm font-medium break-words">dangthhfct31147@gmail.com</p>
+                          <div className="flex items-center gap-2 text-slate-500 text-sm">
+                            <Phone className="w-4 h-4 text-sky-500" />
+                            <span>+84 339 122 620</span>
+                          </div>
+                        </div>
+                        <div className="flex gap-3 mt-5">
+                          <a
+                            href="https://www.facebook.com/hai.ang.782631/"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="w-10 h-10 rounded-full bg-indigo-50 text-indigo-500 flex items-center justify-center hover:bg-indigo-100 transition-colors shadow-sm"
+                            title="Facebook"
+                          >
+                            <span className="sr-only">Facebook</span>
+                            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                              <path fillRule="evenodd" d="M22 12c0-5.523-4.477-10-10-10S2 6.477 2 12c0 4.991 3.657 9.128 8.438 9.878v-6.987h-2.54V12h2.54V9.797c0-2.506 1.492-3.89 3.777-3.89 1.094 0 2.238.195 2.238.195v2.46h-1.26c-1.243 0-1.63.771-1.63 1.562V12h2.773l-.443 2.89h-2.33v6.988C18.343 21.128 22 16.991 22 12z" clipRule="evenodd" />
+                            </svg>
+                          </a>
+                          <a
+                            href="https://www.tiktok.com/@mrhomeless_12"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="w-10 h-10 rounded-full bg-slate-100 text-slate-500 flex items-center justify-center hover:bg-slate-200 transition-colors shadow-sm"
+                            title="TikTok"
+                          >
+                            <span className="sr-only">TikTok</span>
+                            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                              <path d="M12.525.02c1.31-.02 2.61-.01 3.91-.02.08 1.53.63 3.09 1.75 4.17 1.12 1.11 2.7 1.62 4.24 1.79v4.03c-1.44-.05-2.89-.35-4.2-.97-.57-.26-1.1-.59-1.62-.93-.01 2.92.01 5.84-.02 8.75-.08 1.4-.54 2.79-1.35 3.94-1.31 1.92-3.58 3.17-5.91 3.21-1.43.08-2.86-.31-4.08-1.03-2.02-1.19-3.44-3.37-3.65-5.71-.02-.5-.03-1-.01-1.49.18-1.9 1.12-3.72 2.58-4.96 1.66-1.44 3.98-2.13 6.15-1.72.02 1.48-.04 2.96-.04 4.44-.99-.32-2.15-.23-3.02.37-.63.41-1.11 1.04-1.36 1.75-.21.51-.15 1.07-.14 1.61.24 1.64 1.82 3.02 3.5 2.87 1.12-.01 2.19-.66 2.77-1.61.19-.33.4-.67.41-1.06.1-1.79.06-3.57.07-5.36.01-4.03-.01-8.05.02-12.07z" />
+                            </svg>
+                          </a>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
             <div className="mt-12 pt-8 border-t border-slate-100 flex flex-col md:flex-row justify-center items-center">

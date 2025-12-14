@@ -38,20 +38,21 @@ View your app in AI Studio: https://ai.studio/apps/drive/1GlTghfKTWF6q0HKfLY-gJh
    - Create new Google Apps Script project
    - Copy content from `scripts/mediaUpload.gs`
    - Set script property `DRIVE_FOLDER_ID` to target Google Drive folder
+   - Set script property `MEDIA_UPLOAD_SECRET_KEY` (same as `MEDIA_UPLOAD_SECRET_KEY` or `OTP_SECRET_KEY` on the backend)
    - Deploy as Web app, set "Execute as: Me", "Who has access: Anyone"
    - Copy deployment URL to `MEDIA_UPLOAD_URL`
    
    **OTP Service (`scripts/otpService.gs`):**
    - Create new Google Apps Script project  
    - Copy content from `scripts/otpService.gs`
-   - Set script property `SECRET_KEY` (same as `OTP_SECRET_KEY` in .env)
+   - Set script property `OTP_SECRET_KEY` (same as `OTP_SECRET_KEY` on the backend)
    - Deploy as Web app, set "Execute as: Me", "Who has access: Anyone"
    - Copy deployment URL to `OTP_EMAIL_URL`
    
    **Notification Service (`scripts/notificationService.gs`):**
    - Create new Google Apps Script project
    - Copy content from `scripts/notificationService.gs`
-   - Set script property `NOTIF_SECRET_KEY` (same as `OTP_SECRET_KEY` in .env)
+   - Set script property `NOTIFICATION_SECRET_KEY` (same as `OTP_SECRET_KEY` on the backend)
    - Deploy as Web app, set "Execute as: Me", "Who has access: Anyone"
    - Copy deployment URL to `NOTIFICATION_EMAIL_URL`
 
@@ -64,7 +65,7 @@ View your app in AI Studio: https://ai.studio/apps/drive/1GlTghfKTWF6q0HKfLY-gJh
    - **Contests:** `GET /api/contests`, `GET /api/contests/:id`, `POST/PATCH /api/contests` (admin)
    - **Courses:** `GET /api/courses`, `POST /api/courses/:id/lessons`, `POST /api/courses/:id/materials`
    - **Notifications:** `POST /api/notifications/contest-reminder`, `POST /api/notifications/course-update`, `POST /api/notifications/announcement`
-   - **Media:** `POST /api/media/presign` -> returns `uploadUrl` and `fileName`
+  - **Media:** `POST /api/media/presign` -> returns `uploadUrl`, `fileName`, `folder`, `mimeType`, `nonce`, `timestamp`, `signature` (required by `scripts/mediaUpload.gs`)
    - **User Settings:** `GET /api/users/me/settings`, `PATCH /api/users/me/profile`, `PATCH /api/users/me/notifications`
    - **AI Chat:** `POST /api/chat` (RAG-powered assistant), `GET /api/chat/suggestions`
    - **Matching:** `GET /api/matching/recommendations`, `GET /api/matching/score/:userId`, `POST /api/matching/refresh`

@@ -14,6 +14,20 @@ const ALLOWED_MIME_TYPES = new Set([
   'video/quicktime',
 ]);
 
+function generateUploadSignature({ fileName, folder, mimeType, nonce, timestamp }, secretKey) {
+  const canonicalString =
+    `fileName=${fileName}` +
+    `&folder=${folder}` +
+    `&mimeType=${mimeType}` +
+    `&nonce=${nonce}` +
+    `&timestamp=${timestamp}`;
+
+  return crypto
+    .createHmac('sha256', secretKey)
+    .update(canonicalString)
+    .digest('base64');
+}
+
 router.post('/presign', authGuard, (req, res) => {
   const { mimeType, folder } = req.body || {};
   if (!mimeType || !ALLOWED_MIME_TYPES.has(mimeType)) {
@@ -24,18 +38,35 @@ router.post('/presign', authGuard, (req, res) => {
     return res.status(500).json({ error: 'MEDIA_UPLOAD_URL is not configured on the server.' });
   }
 
+  const uploadSecret = process.env.MEDIA_UPLOAD_SECRET_KEY || process.env.OTP_SECRET_KEY;
+  if (!uploadSecret) {
+    return res.status(500).json({ error: 'MEDIA_UPLOAD_SECRET_KEY is not configured on the server.' });
+  }
+
   const targetFolder = sanitizeFolder(folder);
   const fileName = buildFileName(targetFolder, mimeType);
+
+  const nonce = crypto.randomUUID();
+  const timestamp = Date.now();
+  const signature = generateUploadSignature(
+    { fileName, folder: targetFolder, mimeType, nonce, timestamp },
+    uploadSecret
+  );
 
   res.json({
     uploadUrl: process.env.MEDIA_UPLOAD_URL,
     fileName,
+    folder: targetFolder,
+    mimeType,
+    nonce,
+    timestamp,
+    signature,
     headers: {
       // Frontend can use this to send the request to the Apps Script endpoint
       'X-Requested-By': 'blanc',
     },
     instructions:
-      'Send a POST multipart/form-data with fields "file" (the binary), "fileName", and "folder" to uploadUrl. The script will respond with a public link.',
+      'Send a POST multipart/form-data with fields "file" (binary), "fileName", "folder", "mimeType", "nonce", "timestamp", and "signature" to uploadUrl. The script will respond with a public link.',
   });
 });
 

@@ -24,6 +24,7 @@ const LOGIN_2FA_TTL_MINUTES = 2; // 2FA/OTP session expires in 2 minutes (matche
 // ============ TEST ACCOUNTS (bypass OTP) ============
 const OTP_BYPASS_EMAILS = [
   'admin@blanc.dev',
+  'admin@contesthub.dev',
 ];
 
 // ============ LOGIN RATE LIMIT CONFIG ============

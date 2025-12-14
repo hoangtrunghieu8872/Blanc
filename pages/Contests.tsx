@@ -34,6 +34,81 @@ const STATUS_MAP: Record<string, string> = {
   'CLOSED': 'Đã kết thúc',
 };
 
+const CATEGORY_LABELS: Record<string, string> = {
+  'it': 'IT & Tech',
+  'it & tech': 'IT & Tech',
+  'it & tech (hackathon, coding, ai/ml)': 'IT & Tech',
+  'hackathon': 'IT & Tech',
+  'coding': 'IT & Tech',
+  'coding contest': 'IT & Tech',
+  'ai/ml': 'IT & Tech',
+  'ai': 'IT & Tech',
+  'ml': 'IT & Tech',
+  'programming': 'IT & Tech',
+  'data': 'Data & Analytics',
+  'data & analytics': 'Data & Analytics',
+  'analytics': 'Data & Analytics',
+  'data science': 'Data & Analytics',
+  'cyber': 'Cybersecurity',
+  'cybersecurity': 'Cybersecurity',
+  'security': 'Cybersecurity',
+  'infosec': 'Cybersecurity',
+  'robotics': 'Robotics & IoT',
+  'robot': 'Robotics & IoT',
+  'iot': 'Robotics & IoT',
+  'embedded': 'Robotics & IoT',
+  'hardware': 'Robotics & IoT',
+  'design': 'Design / UI-UX',
+  'ui': 'Design / UI-UX',
+  'ux': 'Design / UI-UX',
+  'ui/ux': 'Design / UI-UX',
+  'product design': 'Design / UI-UX',
+  'business': 'Business & Strategy',
+  'strategy': 'Business & Strategy',
+  'case study': 'Business & Strategy',
+  'management': 'Business & Strategy',
+  'startup': 'Startup & Innovation',
+  'innovation': 'Startup & Innovation',
+  'pitch': 'Startup & Innovation',
+  'entrepreneurship': 'Startup & Innovation',
+  'marketing': 'Marketing & Growth',
+  'growth': 'Marketing & Growth',
+  'branding': 'Marketing & Growth',
+  'brand': 'Marketing & Growth',
+  'seo': 'Marketing & Growth',
+  'ads': 'Marketing & Growth',
+  'finance': 'Finance & Fintech',
+  'fintech': 'Finance & Fintech',
+  'investment': 'Finance & Fintech',
+  'trading': 'Finance & Fintech',
+  'health': 'Health & Biotech',
+  'biotech': 'Health & Biotech',
+  'medical': 'Health & Biotech',
+  'med': 'Health & Biotech',
+  'education': 'Education & EdTech',
+  'edtech': 'Education & EdTech',
+  'learning': 'Education & EdTech',
+  'training': 'Education & EdTech',
+  'sustainability': 'Sustainability & Environment',
+  'environment': 'Sustainability & Environment',
+  'green': 'Sustainability & Environment',
+  'climate': 'Sustainability & Environment',
+  'gaming': 'Gaming & Esports',
+  'esports': 'Gaming & Esports',
+  'game': 'Gaming & Esports',
+  'research': 'Research & Science',
+  'science': 'Research & Science',
+};
+
+const getCategoryLabel = (category?: string) => {
+  if (!category) return '';
+  const normalized = category.toLowerCase().trim();
+  if (CATEGORY_LABELS[normalized]) return CATEGORY_LABELS[normalized];
+  const hit = Object.entries(CATEGORY_LABELS).find(([key]) => normalized.includes(key));
+  return hit ? hit[1] : category;
+};
+
+
 // Default fallback tags
 const DEFAULT_TAGS = ['UI/UX', 'Design', 'Coding', 'Marketing', 'Data', 'AI', 'IoT', 'Animation'];
 const VISIBLE_TAGS_COUNT = 5;
@@ -623,7 +698,7 @@ END:VCALENDAR`;
           <div className="max-w-7xl mx-auto">
             {contest.category && (
               <Badge className="mb-3 bg-white/20 text-white backdrop-blur-sm border-0 capitalize">
-                {contest.category}
+                {getCategoryLabel(contest.category)}
               </Badge>
             )}
             <h1 className="text-3xl md:text-4xl font-bold text-white mb-2">{contest.title}</h1>

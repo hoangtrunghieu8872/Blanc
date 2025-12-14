@@ -4,7 +4,7 @@ export interface User {
   name: string;
   email: string;
   avatar: string;
-  role: 'student' | 'admin';
+  role: 'student' | 'admin' | 'super_admin';
   balance: number;
   status?: 'active' | 'banned';
 }
@@ -67,7 +67,7 @@ export interface Contest {
   // New fields for complete contest info
   location?: string;
   locationType?: 'online' | 'offline' | 'hybrid';
-  category?: string; // Hackathon, Design Challenge, Coding Contest, etc.
+  category?: string; // Canonical labels: IT & Tech, Data & Analytics, Cybersecurity, etc.
   rules?: string; // Rich text for contest rules/regulations
   schedule?: ContestScheduleItem[]; // Timeline/milestones
   prizes?: ContestPrize[]; // Prize structure
@@ -355,4 +355,63 @@ export interface ReviewStats {
     4: number;
     5: number;
   };
+}
+
+export interface NewsAuthor {
+  id?: string | null;
+  name?: string | null;
+  email?: string | null;
+}
+
+export interface NewsArticle {
+  id: string;
+  slug: string;
+  title: string;
+  summary: string;
+  body?: string;
+  tags: string[];
+  coverImage?: string;
+  type?: 'announcement' | 'minigame' | 'update' | 'event';
+  highlight?: boolean;
+  actionLabel?: string;
+  actionLink?: string;
+  status: 'draft' | 'published';
+  publishAt?: string | null;
+  publishedAt?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+  author?: NewsAuthor | null;
+}
+
+export interface RecruitmentRole {
+  role: string;
+  description?: string;
+  skills?: string[];
+}
+
+export interface RecruitmentContact {
+  name?: string;
+  email?: string;
+  phone?: string;
+  link?: string;
+  discord?: string;
+  note?: string;
+}
+
+export interface RecruitmentPost {
+  id: string;
+  slug: string;
+  title: string;
+  summary: string;
+  body?: string;
+  tags: string[];
+  coverImage?: string;
+  roles: RecruitmentRole[];
+  contact?: RecruitmentContact;
+  status: 'draft' | 'published';
+  publishAt?: string | null;
+  publishedAt?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+  author?: NewsAuthor | null;
 }

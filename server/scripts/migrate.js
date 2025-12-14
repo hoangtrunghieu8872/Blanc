@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import bcrypt from 'bcryptjs';
-import { connectToDatabase, getCollection } from '../lib/db.js';
+import { connectToDatabase, disconnectFromDatabase, getCollection } from '../lib/db.js';
 
 const contests = [
   {
@@ -431,6 +431,63 @@ const teamPostsData = [
   },
 ];
 
+const newsSamples = [
+  {
+    slug: 'thong-bao-bao-tri-12-12',
+    title: 'Thong bao bao tri 12/12',
+    summary: 'He thong se bao tri ngan de toi uu toc do tai va bo sung lop bao mat moi. Cac phien dang nhap hien tai khong bi anh huong.',
+    body: 'Thoi gian bao tri du kien tu 01:00 - 02:00 ngay 12/12/2025 (GMT+7). Trong thoi gian nay mot so chuc nang co the bi gian doan nhe.',
+    tags: ['Bao tri', 'Hieu nang'],
+    type: 'announcement',
+    highlight: true,
+    actionLabel: 'Xem chi tiet',
+    actionLink: '#',
+    coverImage: 'https://picsum.photos/seed/news1/1200/600',
+    status: 'published',
+    publishAt: '2025-12-10T07:00:00Z',
+  },
+  {
+    slug: 'mini-game-san-huy-hieu-cuoi-nam',
+    title: 'Mini game: San huy hieu cuoi nam',
+    summary: 'Hoan thanh 3 thu thach trong Cong dong de nhan huy hieu hiem va ma giam gia khoa hoc.',
+    body: 'Su kien dien ra trong tuan nay. Hoan thanh cac bai viet/tuong tac trong Cong dong va gui minh chung de nhan thuong.',
+    tags: ['Qua tang', 'Gamification'],
+    type: 'minigame',
+    highlight: true,
+    actionLabel: 'Tham gia ngay',
+    actionLink: '/community',
+    coverImage: 'https://picsum.photos/seed/news2/1200/600',
+    status: 'published',
+    publishAt: '2025-12-09T13:00:00Z',
+  },
+  {
+    slug: 'cap-nhat-lo-trinh-hoc-moi',
+    title: 'Cap nhat lo trinh hoc moi',
+    summary: 'Them 4 lo trinh Data/AI voi mentor huong dan truc tiep.',
+    body: 'Cac lo trinh moi gom Data Analysis, Machine Learning, Generative AI va MLOps. Ban co the dang ky tu Marketplace.',
+    tags: ['Lo trinh', 'Mentor'],
+    type: 'update',
+    highlight: false,
+    coverImage: 'https://picsum.photos/seed/news3/1200/600',
+    status: 'published',
+    publishAt: '2025-12-08T09:00:00Z',
+  },
+  {
+    slug: 'workshop-pitch-deck-trong-10-phut',
+    title: 'Workshop \"Pitch deck trong 10 phut\"',
+    summary: 'Buoi chia se online cung giam khao cac cuoc thi lon.',
+    body: 'Mang theo deck cua ban de duoc gop y truc tiep. Link tham gia se duoc gui qua email sau khi dang ky.',
+    tags: ['Workshop', 'Online'],
+    type: 'event',
+    highlight: false,
+    actionLabel: 'Ghi cho',
+    actionLink: '#',
+    coverImage: 'https://picsum.photos/seed/news4/1200/600',
+    status: 'published',
+    publishAt: '2025-12-06T11:30:00Z',
+  },
+];
+
 async function seedContests() {
   const collection = getCollection('contests');
   await collection.createIndex({ code: 1 }, { unique: true });
@@ -498,6 +555,48 @@ async function seedUsers() {
   );
 
   await Promise.all(operations);
+}
+
+async function seedNews() {
+  const collection = getCollection('news');
+  const usersCollection = getCollection('users');
+
+  await collection.createIndex({ slug: 1 }, { unique: true });
+  await collection.createIndex({ status: 1, publishAt: -1 });
+  await collection.createIndex({ tags: 1 });
+
+  const adminUser = await usersCollection.findOne({ email: 'admin@blanc.dev' });
+  const author = adminUser
+    ? {
+      id: adminUser._id.toString(),
+      email: adminUser.email,
+      name: adminUser.name,
+    }
+    : { id: null, email: null, name: 'Admin' };
+
+  const operations = newsSamples.map((item) => {
+    const publishAt = item.publishAt ? new Date(item.publishAt) : null;
+    const now = new Date();
+    return collection.updateOne(
+      { slug: item.slug },
+      {
+        $set: {
+          ...item,
+          publishAt,
+          publishedAt: item.status === 'published' ? (publishAt || now) : null,
+          author,
+          updatedAt: now,
+        },
+        $setOnInsert: {
+          createdAt: now,
+        },
+      },
+      { upsert: true }
+    );
+  });
+
+  await Promise.all(operations);
+  console.log(`? Seeded ${newsSamples.length} news items`);
 }
 
 async function seedTeamPosts() {
@@ -593,6 +692,7 @@ async function main() {
     await seedUsers();
     await seedContests();
     await seedCourses();
+    await seedNews();
     await seedTeamPosts();
     await setupLoginAttemptsCollection();
     // eslint-disable-next-line no-console
@@ -601,6 +701,14 @@ async function main() {
     // eslint-disable-next-line no-console
     console.error('❌ Migration failed:', error);
     process.exitCode = 1;
+  } finally {
+    try {
+      await disconnectFromDatabase();
+    } catch (disconnectError) {
+      // eslint-disable-next-line no-console
+      console.error('Failed to disconnect from MongoDB:', disconnectError);
+      process.exitCode = process.exitCode || 1;
+    }
   }
 }
 

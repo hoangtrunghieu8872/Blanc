@@ -1,9 +1,12 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Search, ArrowRight, Users, Trophy, BookOpen, Star, Calendar, Loader2, X } from 'lucide-react';
 import { Button, Card, Badge } from '../components/ui/Common';
 import { useNavigate } from 'react-router-dom';
 import { useSearch, useStats, useContests, useCourses, useRecommendedContent } from '../lib/hooks';
 import OptimizedImage from '../components/OptimizedImage';
+import { newsApi } from '../lib/newsApi';
+import { PinnedNewsSlider } from '../components/PinnedNewsSlider';
+import type { NewsArticle } from '../types';
 
 const Home: React.FC = () => {
   const navigate = useNavigate();
@@ -14,7 +17,7 @@ const Home: React.FC = () => {
   // Database hooks
   const { stats, isLoading: statsLoading } = useStats();
   const { contests: defaultContests, isLoading: contestsLoading } = useContests({ limit: 3 });
-  const { courses: defaultCourses, isLoading: coursesLoading } = useCourses({ limit: 4 });
+  const { courses: defaultCourses, isLoading: coursesLoading } = useCourses({ limit: 3 });
 
   // Personalized recommendations (only for logged-in users)
   const {
@@ -50,6 +53,24 @@ const Home: React.FC = () => {
   const [showResults, setShowResults] = useState(false);
   const searchRef = useRef<HTMLDivElement>(null);
 
+  // Pinned news slider (admin-highlighted news)
+  const [pinnedNews, setPinnedNews] = useState<NewsArticle[]>([]);
+
+  const fetchPinnedNews = useCallback(async () => {
+    try {
+      const data = await newsApi.listPublic({ limit: 6, highlight: true });
+      const items = Array.isArray(data.items) ? data.items : [];
+      setPinnedNews(items.filter((item) => !!item.highlight));
+    } catch (err) {
+      console.error('Failed to fetch pinned news:', err);
+      setPinnedNews([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchPinnedNews();
+  }, [fetchPinnedNews]);
+
   // Click outside to close search results
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -82,23 +103,42 @@ const Home: React.FC = () => {
     return `Còn ${days} ngày`;
   };
 
+  const handleHeroCta = useCallback(() => {
+    if (isLoggedIn) {
+      navigate('/contests');
+    } else {
+      navigate('/register');
+    }
+  }, [isLoggedIn, navigate]);
+
   return (
     <div className="flex flex-col gap-16 pb-16">
 
       {/* Hero Section */}
-      <section className="relative bg-white pt-20 pb-24 px-4 sm:px-6 lg:px-8 overflow-hidden">
+      <section className="relative bg-white pt-0 pb-24 px-4 sm:px-6 lg:px-8 overflow-hidden">
         <div className="absolute top-0 left-1/2 w-full -translate-x-1/2 h-full bg-[radial-gradient(ellipse_at_top,var(--tw-gradient-stops))] from-primary-50 via-white to-white pointer-events-none" />
         <div className="max-w-7xl mx-auto relative z-10 text-center">
+          <div className="relative left-1/2 right-1/2 w-screen -ml-[50vw] -mr-[50vw]">
+            <PinnedNewsSlider
+              className="mb-10"
+              intervalMs={10_000}
+              items={pinnedNews}
+              lead={(
+              <>
           <Badge className="mb-6 bg-primary-50 text-primary-700 border-primary-100 px-4 py-1.5 text-sm">
-            🚀 Nền tảng thi đấu số 1 cho học sinh
+            🚀 Nền tảng phát triển cá nhân số 1 cho học sinh
           </Badge>
           <h1 className="text-4xl md:text-6xl font-extrabold text-slate-900 tracking-tight mb-6">
             Khám phá tiềm năng <br className="hidden md:block" />
             <span className="text-primary-600">Nâng tầm kiến thức</span>
           </h1>
-          <p className="text-lg md:text-xl text-slate-500 mb-10 max-w-2xl mx-auto">
+          <p className="text-lg md:text-xl text-slate-500 max-w-2xl mx-auto">
             Tham gia các cuộc thi uy tín, học hỏi từ các khóa học hàng đầu và kết nối với cộng đồng tài năng trên toàn quốc.
           </p>
+              </>
+            )}
+            />
+          </div>
 
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-16">
             {/* Search with dropdown results */}
@@ -203,38 +243,101 @@ const Home: React.FC = () => {
                 </div>
               )}
             </div>
-            <Button size="lg" className="w-full sm:w-auto rounded-full px-8" onClick={() => navigate('/register')}>
+            <Button size="lg" className="w-full sm:w-auto rounded-full px-8" onClick={handleHeroCta}>
               Bắt đầu ngay
             </Button>
           </div>
 
           {/* Stats */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-8 border-t border-slate-100 pt-12">
-            {statsLoading ? (
-              // Loading skeleton
-              [...Array(4)].map((_, idx) => (
-                <div key={idx} className="flex flex-col items-center animate-pulse">
-                  <div className="bg-slate-200 p-3 rounded-full mb-3 w-12 h-12" />
-                  <div className="h-8 w-16 bg-slate-200 rounded mb-2" />
-                  <div className="h-4 w-20 bg-slate-100 rounded" />
-                </div>
-              ))
-            ) : (
-              [
-                { label: 'Thành viên', value: stats?.formatted.users || '0+', icon: Users },
-                { label: 'Cuộc thi', value: stats?.formatted.contests || '0+', icon: Trophy },
-                { label: 'Khóa học', value: stats?.formatted.courses || '0+', icon: BookOpen },
-                { label: 'Đánh giá', value: stats?.formatted.avgRating || '0/5', icon: Star },
-              ].map((stat, idx) => (
-                <div key={idx} className="flex flex-col items-center">
-                  <div className="bg-primary-50 p-3 rounded-full mb-3 text-primary-600">
-                    <stat.icon className="w-6 h-6" />
-                  </div>
-                  <span className="text-2xl font-bold text-slate-900">{stat.value}</span>
-                  <span className="text-sm text-slate-500">{stat.label}</span>
-                </div>
-              ))
-            )}
+          <div className="relative left-1/2 right-1/2 w-screen -ml-[50vw] -mr-[50vw] overflow-hidden mb-[-88px] md:mb-[-104px]">
+            <div className="absolute inset-0 bg-gradient-to-r from-primary-50 via-white to-emerald-50" />
+            <div className="absolute -left-20 top-0 w-72 h-72 bg-primary-200/60 blur-3xl" />
+            <div className="absolute right-[-120px] bottom-[-120px] w-80 h-80 bg-emerald-200/60 blur-3xl" />
+
+            <div className="relative max-w-6xl mx-auto px-6 md:px-14 py-14 md:py-16">
+              <div className="flex flex-col items-center text-center gap-4 md:gap-5">
+                <p className="text-xs font-semibold uppercase tracking-[0.3em] text-primary-600">Số liệu trực tiếp</p>
+                <h3 className="text-3xl md:text-4xl font-black text-slate-900">Nhịp đập ContestHub</h3>
+                <p className="text-slate-600 max-w-3xl">
+                  Cập nhật liên tục từ hệ thống đăng ký, lớp học và các cuộc thi đang diễn ra.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-8">
+                {statsLoading ? (
+                  [...Array(3)].map((_, idx) => (
+                    <div
+                      key={idx}
+                      className="relative overflow-hidden rounded-2xl border border-white/60 bg-white/70 backdrop-blur p-6 shadow-lg shadow-primary-100/50 animate-pulse"
+                    >
+                      <div className="h-12 w-12 bg-slate-200 rounded-full mb-5" />
+                      <div className="h-8 w-24 bg-slate-200 rounded" />
+                      <div className="h-4 w-32 bg-slate-100 rounded mt-3" />
+                      <div className="h-2 w-full bg-slate-100 rounded-full mt-6" />
+                    </div>
+                  ))
+                ) : (
+                  [
+                    {
+                      label: 'Thành viên',
+                      value: stats?.formatted.users || '0+',
+                      icon: Users,
+                      badge: 'Cộng đồng',
+                      helper: 'Gia nhập mới mỗi ngày',
+                      progress: '78%',
+                    },
+                    {
+                      label: 'Cuộc thi',
+                      value: stats?.formatted.contests || '0+',
+                      icon: Trophy,
+                      badge: 'Đang mở',
+                      helper: 'Lịch thi cập nhật liên tục',
+                      progress: '64%',
+                    },
+                    {
+                      label: 'Khóa học',
+                      value: stats?.formatted.courses || '0+',
+                      icon: BookOpen,
+                      badge: 'Nội dung',
+                      helper: 'Lộ trình được tuyển chọn',
+                      progress: '72%',
+                    },
+                  ].map((stat, idx) => (
+                    <div
+                      key={idx}
+                      className="relative overflow-hidden rounded-2xl bg-white/85 backdrop-blur border border-white/60 shadow-lg shadow-primary-100/60 p-6 group transition duration-300 hover:-translate-y-1 hover:shadow-xl flex flex-col items-center text-center gap-4"
+                    >
+                      <div className="absolute inset-0 bg-gradient-to-br from-white via-white to-primary-50 opacity-80 group-hover:opacity-100 transition-opacity duration-300" />
+                      <div className="absolute -right-10 -top-12 h-32 w-32 bg-primary-100 blur-2xl opacity-70" />
+                      <div className="absolute -left-10 bottom-0 h-24 w-24 bg-emerald-100 blur-2xl opacity-80" />
+
+                      <div className="relative flex items-center justify-between mb-2 w-full">
+                        <div className="flex items-center gap-3">
+                          <div className="h-12 w-12 rounded-full bg-gradient-to-br from-primary-500 to-emerald-400 text-white flex items-center justify-center shadow-md ring-4 ring-primary-100/70">
+                            <stat.icon className="w-6 h-6" />
+                          </div>
+                          <div>
+                            <p className="text-xs font-semibold text-slate-500 uppercase tracking-[0.15em]">{stat.badge}</p>
+                            <p className="text-sm font-semibold text-slate-900">{stat.label}</p>
+                          </div>
+                        </div>
+                        <span className="text-xs font-semibold text-emerald-700 bg-emerald-50 px-3 py-1 rounded-full border border-emerald-100">
+                          Đang hoạt động
+                        </span>
+                      </div>
+
+                      <div className="relative z-10 w-full">
+                        <div className="flex items-baseline justify-center gap-2">
+                          <span className="text-4xl font-black text-slate-900 leading-none">{stat.value}</span>
+                          <span className="text-sm font-semibold text-slate-500">tổng</span>
+                        </div>
+                        <p className="text-sm text-slate-500 mt-2">{stat.helper}</p>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
           </div>
         </div>
       </section>

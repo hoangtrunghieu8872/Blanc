@@ -41,6 +41,87 @@ const DEFAULT_FOLDER_ID = '1i-mWrEmXXChDdd3dXjr6b55HkFzVJ-Gf';
  */
 const FILE_FIELD_PREFERENCES = ['file', 'upload', 'data'];
 
+// ---------------------------- Security --------------------------------- //
+
+const UPLOAD_SECURITY = Object.freeze({
+  SIGNATURE_MAX_SKEW_MS: 5 * 60 * 1000, // 5 minutes
+  NONCE_TTL_SECONDS: 10 * 60, // 10 minutes
+});
+
+let UPLOAD_SETTINGS_CACHE = null;
+
+function getUploadSettings() {
+  if (UPLOAD_SETTINGS_CACHE) return UPLOAD_SETTINGS_CACHE;
+
+  const props = PropertiesService.getScriptProperties();
+  const secretKey =
+    props.getProperty('MEDIA_UPLOAD_SECRET_KEY') || props.getProperty('OTP_SECRET_KEY');
+
+  if (!secretKey) {
+    throw new Error('Missing Script Property: MEDIA_UPLOAD_SECRET_KEY');
+  }
+
+  UPLOAD_SETTINGS_CACHE = { secretKey: secretKey };
+  return UPLOAD_SETTINGS_CACHE;
+}
+
+function safeCompare(a, b) {
+  const sa = String(a || '');
+  const sb = String(b || '');
+  const len = Math.max(sa.length, sb.length);
+  let result = 0;
+  for (let i = 0; i < len; i++) {
+    const ca = sa.charCodeAt(i) || 0;
+    const cb = sb.charCodeAt(i) || 0;
+    result |= ca ^ cb;
+  }
+  return result === 0 && sa.length === sb.length;
+}
+
+function verifyUploadSignature(params, secretKey) {
+  const fileName = String(params.fileName || '');
+  const folder = String(params.folder || '');
+  const mimeType = String(params.mimeType || '');
+  const nonce = String(params.nonce || '');
+  const timestamp = Number(params.timestamp);
+  const signature = String(params.signature || '');
+
+  if (!fileName || !folder || !mimeType) {
+    throw new Error('Missing signed fields');
+  }
+
+  if (!timestamp || !nonce || !signature) {
+    throw new Error('Missing signature fields');
+  }
+
+  const now = Date.now();
+  if (Math.abs(now - timestamp) > UPLOAD_SECURITY.SIGNATURE_MAX_SKEW_MS) {
+    throw new Error('Signature expired');
+  }
+
+  // Replay protection via nonce cache
+  const cache = CacheService.getScriptCache();
+  const nonceKey = 'media_upload_nonce:' + nonce;
+  if (cache.get(nonceKey)) {
+    throw new Error('Replay detected');
+  }
+  cache.put(nonceKey, '1', UPLOAD_SECURITY.NONCE_TTL_SECONDS);
+
+  const canonicalString =
+    'fileName=' + fileName +
+    '&folder=' + folder +
+    '&mimeType=' + mimeType +
+    '&nonce=' + nonce +
+    '&timestamp=' + String(timestamp);
+
+  const computedBytes = Utilities.computeHmacSha256Signature(canonicalString, secretKey);
+  const computed = Utilities.base64Encode(computedBytes);
+
+  if (!safeCompare(computed, signature)) {
+    throw new Error('Invalid signature');
+  }
+}
+
 // ---------------------------- Entry Point ------------------------------ //
 
 function doPost(e) {
@@ -51,10 +132,29 @@ function doPost(e) {
 
     const params = e.parameter || {};
 
+    // Require backend-issued HMAC token
+    const settings = getUploadSettings();
+    try {
+      verifyUploadSignature(params, settings.secretKey);
+    } catch (sigError) {
+      return jsonResponse(401, { error: sigError && sigError.message ? sigError.message : 'Invalid signature.' });
+    }
+
     // 1) Extract file as a Blob
     const fileBlob = extractFile(e, params);
     if (!fileBlob) {
       return jsonResponse(400, { error: 'Missing file payload.' });
+    }
+
+    // Optional: best-effort MIME validation (may be unavailable depending on request parsing)
+    try {
+      const signedMimeType = String(params.mimeType || '');
+      const actualMimeType = fileBlob.getContentType ? String(fileBlob.getContentType() || '') : '';
+      if (signedMimeType && actualMimeType && actualMimeType !== 'application/octet-stream' && actualMimeType !== signedMimeType) {
+        return jsonResponse(400, { error: 'mimeType mismatch.' });
+      }
+    } catch (mimeError) {
+      console.warn('mimeType check skipped:', mimeError);
     }
 
     // 2) Determine target folder

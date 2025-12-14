@@ -81,7 +81,7 @@ Bạn có thể tắt cookies trong trình duyệt, nhưng một số tính năn
 • **Quyền di chuyển:** Xuất dữ liệu của bạn
 • **Quyền phản đối:** Từ chối marketing trực tiếp
 
-Để thực hiện các quyền này, vui lòng liên hệ: dangthhfct31147@gmail.com`
+Để thực hiện các quyền này, vui lòng liên hệ: clbflife2025thptfptcantho@gmail.com`
     },
     {
       id: 'retention',
@@ -187,8 +187,8 @@ Bạn có thể tắt cookies trong trình duyệt, nhưng một số tính năn
                 Nếu bạn có câu hỏi về chính sách bảo mật hoặc muốn thực hiện quyền của mình, vui lòng liên hệ:
               </p>
               <div className="space-y-2 text-slate-600">
-                <p>📧 Email: <a href="mailto:dangthhfct31147@gmail.com" className="text-emerald-600 hover:underline">dangthhfct31147@gmail.com</a></p>
-                <p>📞 Điện thoại: <a href="tel:+84339122620" className="text-emerald-600 hover:underline">+84 339 122 620</a></p>
+                <p>📧 Email: <a href="mailto:clbflife2025thptfptcantho@gmail.com" className="text-emerald-600 hover:underline">clbflife2025thptfptcantho@gmail.com</a></p>
+                <p>📞 Điện thoại: <a href="tel:+84916007090" className="text-emerald-600 hover:underline">+84 916 007 090</a></p>
               </div>
             </div>
           </div>

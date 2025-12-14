@@ -12,8 +12,10 @@
 const CONFIG = Object.freeze({
   APP_NAME: 'Blanc',
   SENDER_NAME: 'Blanc Security',
-  SUPPORT_EMAIL: 'support@blanc.com',
+  SUPPORT_EMAIL: 'clbflife2025thptfptcantho@gmail.com',
+  SUPPORT_PHONE: '+84916007090',
   LOGO_URL: 'https://via.placeholder.com/120x40/10B981/FFFFFF?text=Blanc',
+  ROCKET_IMAGE_URL: 'https://img.icons8.com/color/96/rocket.png',
   PRIMARY_COLOR: '#10B981',
   SECONDARY_COLOR: '#059669',
   // Security / rate limit
@@ -538,9 +540,7 @@ function generateOtpEmailTemplate(otp, actionText, ttlMinutes, actionType, appNa
     '<table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color: #ffffff; border-radius: 20px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); overflow: hidden;">' +
     '<tr>' +
     '<td style="background: linear-gradient(135deg, ' + CONFIG.PRIMARY_COLOR + ' 0%, ' + CONFIG.SECONDARY_COLOR + ' 100%); padding: 30px; text-align: center;">' +
-    '<div style="width: 70px; height: 70px; background-color: rgba(255,255,255,0.2); border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; margin-bottom: 15px;">' +
-    '<span style="font-size: 32px;">' + icon + '</span>' +
-    '</div>' +
+    '<div style="width: 90px; height: 90px; background-color: rgba(255,255,255,0.22); border-radius: 50%; display: inline-block; margin-bottom: 15px; background-image: url(' + CONFIG.ROCKET_IMAGE_URL + '); background-repeat: no-repeat; background-position: center; background-size: 64px 64px;"></div>' +
     '<h1 style="color: #ffffff; font-size: 22px; margin: 0; font-weight: 600;">' + title + '</h1>' +
     '</td>' +
     '</tr>' +
@@ -580,7 +580,7 @@ function generateOtpEmailTemplate(otp, actionText, ttlMinutes, actionType, appNa
     '<td style="padding: 30px 20px; text-align: center;">' +
     '<p style="color: #94a3b8; font-size: 12px; line-height: 1.6; margin: 0;">' +
     'Email này được gửi tự động từ ' + safeAppName + '.<br>' +
-    'Vui lòng không trả lời email này.' +
+    'Cần hỗ trợ? Liên hệ: <a href="mailto:' + CONFIG.SUPPORT_EMAIL + '" style="color:' + CONFIG.PRIMARY_COLOR + ';text-decoration:none;">' + CONFIG.SUPPORT_EMAIL + '</a> • <a href="tel:' + CONFIG.SUPPORT_PHONE + '" style="color:' + CONFIG.PRIMARY_COLOR + ';text-decoration:none;">' + CONFIG.SUPPORT_PHONE + '</a>' +
     '</p>' +
     '<p style="color: #cbd5e1; font-size: 11px; margin: 15px 0 0 0;">' +
     '© ' + (new Date().getFullYear()) + ' ' + safeAppName + '. All rights reserved.' +
