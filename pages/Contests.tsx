@@ -3,6 +3,7 @@ import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { Search, Filter, Calendar, MapPin, Tag, Share2, Award, Users, CheckCircle, Loader2, X, Clock, CalendarPlus, Copy, Check, Star } from 'lucide-react';
 import { Button, Input, Card, Badge, Tabs, Dropdown } from '../components/ui/Common';
 import { useContests, useDebounce, useUserRegistrations } from '../lib/hooks';
+import { API_BASE_URL } from '../lib/api';
 import { Contest } from '../types';
 import OptimizedImage from '../components/OptimizedImage';
 import Pagination from '../components/Pagination';
@@ -525,7 +526,7 @@ const ContestDetail: React.FC = () => {
       if (!id) return;
       setIsLoading(true);
       try {
-        const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:4000/api'}/contests/${id}`);
+        const response = await fetch(`${API_BASE_URL}/contests/${id}`);
         if (!response.ok) throw new Error('Contest not found');
         const data = await response.json();
         setContest(data.contest);

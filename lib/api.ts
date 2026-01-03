@@ -1,7 +1,10 @@
 import { apiCache, sessionCache, localCache, CACHE_TTL } from './cache';
 
 // API Configuration
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000/api';
+const apiBaseUrlRaw =
+  import.meta.env.VITE_API_URL ||
+  (import.meta.env.PROD ? '/api' : 'http://localhost:4000/api');
+const API_BASE_URL = apiBaseUrlRaw.replace(/\/+$/, '');
 
 // Request deduplication - prevent multiple identical requests
 const pendingRequests = new Map<string, Promise<unknown>>();

@@ -1,4 +1,5 @@
 import { MongoClient, ServerApiVersion } from 'mongodb';
+import { createRequire } from 'node:module';
 
 let client;
 let database;
@@ -9,6 +10,28 @@ const RETRY_DELAY_MS = 5000;
 
 const uri = process.env.MONGODB_URI;
 const dbName = process.env.DB_NAME || 'blanc';
+
+const require = createRequire(import.meta.url);
+
+function getMongoCompressors() {
+    const compressors = ['zlib'];
+
+    try {
+        require('@mongodb-js/zstd');
+        compressors.unshift('zstd');
+    } catch {
+        // optional dependency missing
+    }
+
+    try {
+        require('snappy');
+        compressors.unshift('snappy');
+    } catch {
+        // optional dependency missing
+    }
+
+    return compressors;
+}
 
 /**
  * MongoDB 7.0 Optimized Connection Configuration
@@ -41,7 +64,7 @@ const mongoOptions = {
     retryReads: true,          // Retry failed reads
 
     // Compression (reduces network bandwidth)
-    compressors: ['zstd', 'snappy', 'zlib'],
+    compressors: getMongoCompressors(),
 
     // Write Concern for data safety
     w: 'majority',             // Wait for majority acknowledgment

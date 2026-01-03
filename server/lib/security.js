@@ -73,7 +73,8 @@ export function getClientIp(req) {
  * Validate CORS origins are properly configured
  * Should be called at startup to ensure production safety
  */
-export function validateProductionSetup() {
+export function validateProductionSetup(options = {}) {
+    const { log = true } = options;
     const errors = [];
 
     // Check JWT_SECRET
@@ -108,12 +109,9 @@ export function validateProductionSetup() {
         errors.push('MONGODB_URI is not configured');
     }
 
-    if (errors.length > 0) {
+    if (errors.length > 0 && log) {
         console.error('[Security Setup] Critical configuration errors:');
         errors.forEach((e) => console.error(`  - ${e}`));
-        if (process.env.NODE_ENV === 'production') {
-            process.exit(1);
-        }
     }
 
     return errors;

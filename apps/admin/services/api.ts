@@ -7,7 +7,10 @@
  * - Error handling
  */
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000/api';
+const apiBaseUrlRaw =
+    import.meta.env.VITE_API_URL ||
+    (import.meta.env.PROD ? '/api' : 'http://localhost:4000/api');
+const API_BASE_URL = apiBaseUrlRaw.replace(/\/+$/, '');
 
 // Token storage keys
 const ACCESS_TOKEN_KEY = 'admin_access_token';
