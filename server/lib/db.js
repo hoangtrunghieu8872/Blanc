@@ -89,6 +89,7 @@ export async function connectToDatabase() {
     }
 
     // Retry logic for production resilience
+    connectionAttempts = 0;
     while (connectionAttempts < MAX_CONNECTION_RETRIES) {
         try {
             client = new MongoClient(uri, mongoOptions);
@@ -145,9 +146,6 @@ export async function connectToDatabase() {
 
             if (connectionAttempts >= MAX_CONNECTION_RETRIES) {
                 console.error('💥 Failed to connect to MongoDB after maximum retries');
-                if (process.env.NODE_ENV === 'production') {
-                    process.exit(1);
-                }
                 throw err;
             }
 
@@ -156,6 +154,8 @@ export async function connectToDatabase() {
             await new Promise(resolve => setTimeout(resolve, RETRY_DELAY_MS));
         }
     }
+
+    throw new Error('Failed to connect to MongoDB');
 }
 
 export function getDb() {
