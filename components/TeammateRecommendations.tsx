@@ -591,7 +591,7 @@ const TeammateRecommendations: React.FC<TeammateRecommendationsProps> = ({
     const [profileCompletion, setProfileCompletion] = useState<ProfileCompletionResponse | null>(null);
     const [selectedTeammate, setSelectedTeammate] = useState<TeammateRecommendation | null>(null);
 
-    const isLoggedIn = !!localStorage.getItem('auth_token');
+    const isLoggedIn = !!localStorage.getItem('user');
 
     const handleViewDetails = (teammate: TeammateRecommendation) => {
         setSelectedTeammate(teammate);

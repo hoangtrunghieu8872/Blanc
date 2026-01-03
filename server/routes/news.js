@@ -6,7 +6,7 @@ import { authGuard } from '../middleware/auth.js';
 const router = Router();
 const collectionName = 'news';
 const allowedStatuses = ['draft', 'published'];
-const allowedTypes = ['announcement', 'minigame', 'update', 'event'];
+const allowedTypes = ['announcement', 'minigame', 'update', 'event', 'tip'];
 let indexesEnsured = false;
 
 const requireAdmin = (req, res, next) => {

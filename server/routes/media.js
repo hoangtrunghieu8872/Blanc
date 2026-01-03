@@ -9,6 +9,7 @@ const ALLOWED_MIME_TYPES = new Set([
   'image/png',
   'image/gif',
   'image/webp',
+  'application/pdf',
   'video/mp4',
   'video/webm',
   'video/quicktime',

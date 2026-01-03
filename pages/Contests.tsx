@@ -1,14 +1,14 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
-import { Search, Filter, Calendar, MapPin, Tag, Share2, Award, Users, CheckCircle, Loader2, X, Clock, ChevronDown, ChevronUp, CalendarPlus, Copy, Check, Star } from 'lucide-react';
-import { Button, Input, Card, Badge, Tabs } from '../components/ui/Common';
+import { Search, Filter, Calendar, MapPin, Tag, Share2, Award, Users, CheckCircle, Loader2, X, Clock, CalendarPlus, Copy, Check, Star } from 'lucide-react';
+import { Button, Input, Card, Badge, Tabs, Dropdown } from '../components/ui/Common';
 import { useContests, useDebounce, useUserRegistrations } from '../lib/hooks';
 import { Contest } from '../types';
 import OptimizedImage from '../components/OptimizedImage';
 import Pagination from '../components/Pagination';
 import Reviews from '../components/Reviews';
-import { api } from '../lib/api';
 import toast from 'react-hot-toast';
+import { CONTEST_CATEGORIES, ContestCategoryValue } from '../constants/contestCategories';
 
 // Helper functions
 const formatPrice = (price: number) => {
@@ -98,6 +98,7 @@ const CATEGORY_LABELS: Record<string, string> = {
   'game': 'Gaming & Esports',
   'research': 'Research & Science',
   'science': 'Research & Science',
+  'other': 'Other',
 };
 
 const getCategoryLabel = (category?: string) => {
@@ -109,10 +110,6 @@ const getCategoryLabel = (category?: string) => {
 };
 
 
-// Default fallback tags
-const DEFAULT_TAGS = ['UI/UX', 'Design', 'Coding', 'Marketing', 'Data', 'AI', 'IoT', 'Animation'];
-const VISIBLE_TAGS_COUNT = 5;
-
 // --- CONTEST LIST COMPONENT ---
 // Constants
 const ITEMS_PER_PAGE = 6;
@@ -123,45 +120,13 @@ const ContestList: React.FC = () => {
 
   // State
   const [searchQuery, setSearchQuery] = useState(searchParams.get('search') || '');
-  const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const [selectedCategories, setSelectedCategories] = useState<ContestCategoryValue[]>([]);
   const [selectedStatuses, setSelectedStatuses] = useState<string[]>([]);
   const [showFilters, setShowFilters] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
 
-  // Tags from database
-  const [allTags, setAllTags] = useState<string[]>(DEFAULT_TAGS);
-  const [isLoadingTags, setIsLoadingTags] = useState(true);
-  const [showAllTags, setShowAllTags] = useState(false);
-
   // Debounced search
   const debouncedSearch = useDebounce(searchQuery, 300);
-
-  // Fetch tags from database
-  useEffect(() => {
-    const fetchTags = async () => {
-      try {
-        setIsLoadingTags(true);
-        const response = await api.get<{ tags: string[]; tagsWithCount: { tag: string; count: number }[] }>('/contests/tags');
-        if (response.tags && response.tags.length > 0) {
-          setAllTags(response.tags);
-        }
-      } catch (error) {
-        console.error('Failed to fetch tags:', error);
-        // Keep default tags on error
-      } finally {
-        setIsLoadingTags(false);
-      }
-    };
-    fetchTags();
-  }, []);
-
-  // Visible tags (first 5 or all)
-  const visibleTags = useMemo(() => {
-    if (showAllTags) return allTags;
-    return allTags.slice(0, VISIBLE_TAGS_COUNT);
-  }, [allTags, showAllTags]);
-
-  const hasMoreTags = allTags.length > VISIBLE_TAGS_COUNT;
 
   // Fetch contests
   const { contests, isLoading, error, refetch } = useContests({ limit: 50 });
@@ -174,17 +139,19 @@ const ContestList: React.FC = () => {
       const matchesSearch =
         contest.title.toLowerCase().includes(query) ||
         contest.organizer.toLowerCase().includes(query) ||
+        contest.category?.toLowerCase().includes(query) ||
         contest.description?.toLowerCase().includes(query) ||
         contest.tags?.some(tag => tag.toLowerCase().includes(query));
       if (!matchesSearch) return false;
     }
 
-    // Tag filter
-    if (selectedTags.length > 0) {
-      const hasTag = contest.tags?.some(tag =>
-        selectedTags.some(selected => tag.toLowerCase().includes(selected.toLowerCase()))
-      );
-      if (!hasTag) return false;
+    // Category filter
+    if (selectedCategories.length > 0) {
+      const selectedLabels = new Set(selectedCategories.map((value) => getCategoryLabel(value)));
+      const matchesCategory =
+        (contest.category ? selectedLabels.has(getCategoryLabel(contest.category)) : false) ||
+        (contest.tags ? contest.tags.some((tag) => selectedLabels.has(getCategoryLabel(tag))) : false);
+      if (!matchesCategory) return false;
     }
 
     // Status filter
@@ -194,6 +161,14 @@ const ContestList: React.FC = () => {
 
     return true;
   });
+
+  const statusCounts = useMemo(() => {
+    return contests.reduce((acc, contest) => {
+      if (!contest.status) return acc;
+      acc[contest.status] = (acc[contest.status] || 0) + 1;
+      return acc;
+    }, {} as Record<string, number>);
+  }, [contests]);
 
   // Pagination logic
   const totalPages = Math.ceil(filteredContests.length / ITEMS_PER_PAGE);
@@ -207,7 +182,7 @@ const ContestList: React.FC = () => {
   // Reset to page 1 when filters change
   useEffect(() => {
     setCurrentPage(1);
-  }, [debouncedSearch, selectedTags, selectedStatuses]);
+  }, [debouncedSearch, selectedCategories, selectedStatuses]);
 
   // Reset to page 1 if current page exceeds total pages
   useEffect(() => {
@@ -216,10 +191,8 @@ const ContestList: React.FC = () => {
     }
   }, [currentPage, totalPages]);
 
-  const toggleTag = (tag: string) => {
-    setSelectedTags(prev =>
-      prev.includes(tag) ? prev.filter(t => t !== tag) : [...prev, tag]
-    );
+  const toggleCategory = (category: ContestCategoryValue) => {
+    setSelectedCategories((prev) => (prev.length === 1 && prev[0] === category ? [] : [category]));
   };
 
   const toggleStatus = (status: string) => {
@@ -230,15 +203,92 @@ const ContestList: React.FC = () => {
 
   const clearFilters = () => {
     setSearchQuery('');
-    setSelectedTags([]);
+    setSelectedCategories([]);
     setSelectedStatuses([]);
     setCurrentPage(1);
   };
 
-  const hasActiveFilters = searchQuery || selectedTags.length > 0 || selectedStatuses.length > 0;
+  const hasActiveFilters = searchQuery || selectedCategories.length > 0 || selectedStatuses.length > 0;
+  const openCount = statusCounts.OPEN ?? 0;
+  const upcomingCount = statusCounts.FULL ?? 0;
+  const closedCount = statusCounts.CLOSED ?? 0;
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <section className="relative mb-8 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl shadow-primary-100/60">
+        <div className="absolute inset-0 bg-linear-to-br from-primary-50 via-white to-amber-50 opacity-90" aria-hidden="true" />
+        <div className="absolute -top-24 -right-16 h-48 w-48 rounded-full bg-primary-200/40 blur-3xl" aria-hidden="true" />
+        <div className="absolute -bottom-28 -left-16 h-56 w-56 rounded-full bg-amber-200/50 blur-3xl" aria-hidden="true" />
+        <div className="relative p-6 md:p-8 lg:p-10">
+          <div className="grid grid-cols-1 lg:grid-cols-[1.35fr_1fr] gap-8 items-center">
+            <div className="space-y-4 animate-fade-in-up">
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/80 border border-white/70 text-xs font-semibold text-primary-700 shadow-sm">
+                <Star className="w-3.5 h-3.5" />
+                Sân chơi nổi bật
+              </div>
+              <h2 className="text-3xl md:text-4xl font-bold text-slate-900 leading-tight">
+                Khám phá cuộc thi truyền cảm hứng cho mọi lĩnh vực
+              </h2>
+              <p className="text-sm md:text-base text-slate-600 leading-relaxed max-w-xl md:max-w-none md:whitespace-nowrap">
+                Chọn cuộc thi phù hợp, theo dõi deadline và kết nối cùng mentor để bứt phá kỹ năng.
+              </p>
+              <div className="flex flex-wrap gap-3">
+                <div className="flex items-center gap-2 rounded-xl bg-white/90 border border-slate-100 px-3 py-2 text-xs text-slate-600 shadow-sm">
+                  <Tag className="w-4 h-4 text-primary-500" />
+                  Lọc theo lĩnh vực
+                </div>
+                <div className="flex items-center gap-2 rounded-xl bg-white/90 border border-slate-100 px-3 py-2 text-xs text-slate-600 shadow-sm">
+                  <Clock className="w-4 h-4 text-amber-500" />
+                  Nhắc hạn đăng ký
+                </div>
+                <div className="flex items-center gap-2 rounded-xl bg-white/90 border border-slate-100 px-3 py-2 text-xs text-slate-600 shadow-sm">
+                  <Award className="w-4 h-4 text-emerald-500" />
+                  Giải thưởng hấp dẫn
+                </div>
+                <div className="flex items-center gap-2 rounded-xl bg-white/90 border border-slate-100 px-3 py-2 text-xs text-slate-600 shadow-sm">
+                  <Users className="w-4 h-4 text-slate-600" />
+                  Cộng đồng hỗ trợ
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-4 animate-fade-in-up">
+              <div className="rounded-2xl border border-white/80 bg-white/80 p-5 shadow-md">
+                <div className="text-xs font-semibold uppercase tracking-widest text-slate-400">Tổng quan</div>
+                <div className="mt-3 flex items-end gap-2">
+                  <span className="text-3xl font-bold text-slate-900">{isLoading ? '--' : contests.length}</span>
+                  <span className="text-sm text-slate-500">cuộc thi</span>
+                </div>
+                <p className="mt-2 text-xs text-slate-500">
+                  Cập nhật liên tục, luôn có sân chơi mới mỗi tuần.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-1 gap-3">
+                <div className="rounded-xl border border-emerald-100 bg-emerald-50/80 px-4 py-3">
+                  <div className="text-xs font-semibold text-emerald-700">Đang mở</div>
+                  <div className="mt-1 text-2xl font-bold text-emerald-800">
+                    {isLoading ? '--' : openCount}
+                  </div>
+                </div>
+                <div className="rounded-xl border border-amber-100 bg-amber-50/80 px-4 py-3">
+                  <div className="text-xs font-semibold text-amber-700">Sắp diễn ra</div>
+                  <div className="mt-1 text-2xl font-bold text-amber-800">
+                    {isLoading ? '--' : upcomingCount}
+                  </div>
+                </div>
+                <div className="rounded-xl border border-slate-200 bg-white/80 px-4 py-3">
+                  <div className="text-xs font-semibold text-slate-600">Đã kết thúc</div>
+                  <div className="mt-1 text-2xl font-bold text-slate-800">
+                    {isLoading ? '--' : closedCount}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Tất cả cuộc thi</h1>
@@ -281,51 +331,61 @@ const ContestList: React.FC = () => {
         </div>
       </div>
 
+      {/* Category sort (synced from Admin) */}
+      <div className="hidden flex flex-wrap justify-center gap-3 mb-6">
+        <button
+          type="button"
+          onClick={() => setSelectedCategories([])}
+          className={`px-4 py-2 rounded-full text-sm font-medium transition-all ${
+            selectedCategories.length === 0
+              ? 'bg-primary-600 text-white shadow-md'
+              : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
+          }`}
+        >
+          Tất cả
+        </button>
+        {CONTEST_CATEGORIES.map((category) => {
+          const isActive = selectedCategories.includes(category.value);
+          return (
+            <button
+              key={category.value}
+              type="button"
+              title={category.label}
+              aria-pressed={isActive}
+              onClick={() => toggleCategory(category.value)}
+              className={`px-4 py-2 rounded-full text-sm font-medium transition-all ${
+                isActive
+                  ? 'bg-primary-600 text-white shadow-md'
+                  : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
+              }`}
+            >
+              {getCategoryLabel(category.value)}
+            </button>
+          );
+        })}
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
         {/* Sidebar Filters */}
         <aside className={`${showFilters ? 'block' : 'hidden'} lg:block space-y-6`}>
           <div>
             <h3 className="font-semibold text-slate-900 mb-3">Lĩnh vực</h3>
-            {isLoadingTags ? (
-              <div className="flex items-center gap-2 text-sm text-slate-500">
-                <Loader2 className="w-4 h-4 animate-spin" />
-                <span>Đang tải...</span>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {visibleTags.map(tag => (
-                  <label key={tag} className="flex items-center space-x-2 text-sm text-slate-600 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={selectedTags.includes(tag)}
-                      onChange={() => toggleTag(tag)}
-                      className="rounded text-primary-600 focus:ring-primary-500"
-                    />
-                    <span>{tag}</span>
-                  </label>
-                ))}
-                {hasMoreTags && (
-                  <button
-                    onClick={() => setShowAllTags(!showAllTags)}
-                    className="flex items-center gap-1 text-sm text-primary-600 hover:text-primary-700 font-medium mt-2 transition-colors"
-                  >
-                    {showAllTags ? (
-                      <>
-                        <ChevronUp className="w-4 h-4" />
-                        Thu gọn
-                      </>
-                    ) : (
-                      <>
-                        <ChevronDown className="w-4 h-4" />
-                        Xem thêm ({allTags.length - VISIBLE_TAGS_COUNT})
-                      </>
-                    )}
-                  </button>
-                )}
-              </div>
-            )}
+            <Dropdown
+              value={selectedCategories[0] ?? ''}
+              onChange={(value) => setSelectedCategories(value ? [value as ContestCategoryValue] : [])}
+              placeholder="Tất cả"
+              headerText="Chọn lĩnh vực"
+              options={[
+                { value: '', label: 'Tất cả' },
+                ...CONTEST_CATEGORIES.map((category) => ({
+                  value: category.value,
+                  label: getCategoryLabel(category.value),
+                })),
+              ]}
+            />
           </div>
-          <div className="pt-6 border-t border-slate-200">
+
+          <div>
             <h3 className="font-semibold text-slate-900 mb-3">Trạng thái</h3>
             <div className="space-y-2">
               {Object.entries(STATUS_MAP).map(([status, label]) => (
@@ -389,7 +449,7 @@ const ContestList: React.FC = () => {
                   <div className="p-5 flex flex-col grow">
                     <div className="flex items-center justify-between mb-2">
                       <span className="text-xs font-semibold text-primary-600 bg-primary-50 px-2 py-0.5 rounded">
-                        {contest.tags?.[0] || 'General'}
+                        {getCategoryLabel(contest.category || contest.tags?.[0] || 'General')}
                       </span>
                       <span className="text-xs text-slate-400">{getRemainingDays(contest.deadline)}</span>
                     </div>
@@ -544,8 +604,8 @@ END:VCALENDAR`;
     if (!id || !contest) return;
 
     // Check if user is logged in
-    const token = localStorage.getItem('auth_token');
-    if (!token) {
+    const userStr = localStorage.getItem('user');
+    if (!userStr) {
       toast.error('Vui lòng đăng nhập để đăng ký cuộc thi');
       navigate('/auth?redirect=' + encodeURIComponent(window.location.pathname));
       return;

@@ -12,7 +12,7 @@ const Home: React.FC = () => {
   const navigate = useNavigate();
 
   // Check login status
-  const isLoggedIn = !!localStorage.getItem('auth_token');
+  const isLoggedIn = !!localStorage.getItem('user');
 
   // Database hooks
   const { stats, isLoading: statsLoading } = useStats();

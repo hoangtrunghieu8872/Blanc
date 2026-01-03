@@ -6,6 +6,10 @@ WORKDIR /app
 # Copy package files
 COPY package*.json ./
 
+# Copy workspace manifests for npm workspaces
+RUN mkdir -p apps/admin
+COPY apps/admin/package.json ./apps/admin/package.json
+
 # Install dependencies
 RUN npm install --legacy-peer-deps
 
@@ -22,6 +26,10 @@ WORKDIR /app
 
 # Copy package files for backend
 COPY package*.json ./
+
+# Copy workspace manifests for npm workspaces
+RUN mkdir -p apps/admin
+COPY apps/admin/package.json ./apps/admin/package.json
 
 # Install production dependencies only
 RUN npm install --omit=dev --legacy-peer-deps

@@ -401,7 +401,7 @@ const Reviews: React.FC<ReviewsProps> = ({
     const [hasUserReviewed, setHasUserReviewed] = useState(false);
 
     // Check if user is logged in
-    const isLoggedIn = !!localStorage.getItem('auth_token');
+    const isLoggedIn = !!localStorage.getItem('user');
 
     const INITIAL_REVIEWS_COUNT = 3;
 

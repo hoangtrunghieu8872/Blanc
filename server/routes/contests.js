@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { ObjectId } from 'mongodb';
 import { connectToDatabase, getCollection } from '../lib/db.js';
+import { getCached, invalidate } from '../lib/cache.js';
 import { authGuard, requireRole } from '../middleware/auth.js';
 
 const router = Router();
@@ -166,19 +167,28 @@ router.get('/', async (req, res, next) => {
     const tag = typeof req.query.tag === 'string' ? req.query.tag : undefined;
     const query = tag ? { tags: tag } : {};
 
-    const contests = await getCollection('contests')
-      .find(query, contestFields)
-      .sort({ createdAt: -1 })
-      .limit(limit)
-      .toArray();
+    // Cache key based on query params
+    const cacheKey = `contests:list:${tag || 'all'}:${limit}`;
 
-    const countMap = await getActiveRegistrationCountMap(contests.map((c) => c._id));
+    const mapped = await getCached(
+      cacheKey,
+      async () => {
+        const contests = await getCollection('contests')
+          .find(query, contestFields)
+          .sort({ createdAt: -1 })
+          .limit(limit)
+          .toArray();
 
-    const mapped = contests.map((doc) => {
-      const contest = mapContest(doc);
-      contest.registrationCount = countMap.get(doc._id.toString()) ?? 0;
-      return contest;
-    });
+        const countMap = await getActiveRegistrationCountMap(contests.map((c) => c._id));
+
+        return contests.map((doc) => {
+          const contest = mapContest(doc);
+          contest.registrationCount = countMap.get(doc._id.toString()) ?? 0;
+          return contest;
+        });
+      },
+      600 // 10 minutes cache
+    );
 
     res.json({ contests: mapped });
   } catch (error) {
@@ -252,6 +262,10 @@ router.post('/', authGuard, requireRole('admin'), async (req, res, next) => {
     };
 
     const result = await getCollection('contests').insertOne(payload);
+
+    // Invalidate contests cache
+    await invalidate('contests:*');
+
     res.status(201).json({ id: result.insertedId.toString() });
   } catch (error) {
     next(error);

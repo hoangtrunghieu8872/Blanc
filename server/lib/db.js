@@ -3,6 +3,9 @@ import { MongoClient, ServerApiVersion } from 'mongodb';
 let client;
 let database;
 let streakIndexesPromise;
+let connectionAttempts = 0;
+const MAX_CONNECTION_RETRIES = 5;
+const RETRY_DELAY_MS = 5000;
 
 const uri = process.env.MONGODB_URI;
 const dbName = process.env.DB_NAME || 'blanc';
@@ -62,51 +65,74 @@ export async function connectToDatabase() {
         throw new Error('MONGODB_URI is not set. Add it to your environment variables.');
     }
 
-    client = new MongoClient(uri, mongoOptions);
+    // Retry logic for production resilience
+    while (connectionAttempts < MAX_CONNECTION_RETRIES) {
+        try {
+            client = new MongoClient(uri, mongoOptions);
 
-    await client.connect();
-    database = client.db(dbName);
+            await client.connect();
+            database = client.db(dbName);
 
-    // Verify connection with a simple ping (compatible with Stable API)
-    await database.command({ ping: 1 });
+            // Verify connection with a simple ping (compatible with Stable API)
+            await database.command({ ping: 1 });
 
-    // Ensure critical indexes exist (once per process)
-    if (!streakIndexesPromise) {
-        streakIndexesPromise = (async () => {
-            const streaks = database.collection('user_streaks');
-            try {
-                await streaks.createIndex(
-                    { userId: 1 },
-                    { unique: true, name: 'idx_user_streak' }
-                );
-            } catch (err) {
-                // Duplicate userId values prevent building a unique index; fix data then restart.
-                if (err?.code === 11000) {
-                    const message =
-                        'Cannot create unique index user_streaks.userId because duplicates exist. Run server/scripts/fix-duplicate-streaks.cjs then restart.';
-                    if (process.env.NODE_ENV === 'production') {
-                        console.error(message);
-                        return;
+            // Reset connection attempts on success
+            connectionAttempts = 0;
+
+            // Ensure critical indexes exist (once per process)
+            if (!streakIndexesPromise) {
+                streakIndexesPromise = (async () => {
+                    const streaks = database.collection('user_streaks');
+                    try {
+                        await streaks.createIndex(
+                            { userId: 1 },
+                            { unique: true, name: 'idx_user_streak' }
+                        );
+                    } catch (err) {
+                        // Duplicate userId values prevent building a unique index; fix data then restart.
+                        if (err?.code === 11000) {
+                            const message =
+                                'Cannot create unique index user_streaks.userId because duplicates exist. Run server/scripts/fix-duplicate-streaks.cjs then restart.';
+                            if (process.env.NODE_ENV === 'production') {
+                                console.error(message);
+                                return;
+                            }
+                            throw new Error(message);
+                        }
+
+                        if (err?.code === 85 || err?.codeName === 'IndexOptionsConflict') {
+                            return;
+                        }
+
+                        throw err;
                     }
-                    throw new Error(message);
-                }
+                })();
+            }
+            await streakIndexesPromise;
 
-                if (err?.code === 85 || err?.codeName === 'IndexOptionsConflict') {
-                    return;
-                }
+            // Log connection success
+            if (process.env.NODE_ENV !== 'production') {
+                console.log(`✅ Connected to MongoDB (${dbName})`);
+            }
 
+            return database;
+        } catch (err) {
+            connectionAttempts++;
+            console.error(`❌ MongoDB connection attempt ${connectionAttempts}/${MAX_CONNECTION_RETRIES} failed:`, err.message);
+
+            if (connectionAttempts >= MAX_CONNECTION_RETRIES) {
+                console.error('💥 Failed to connect to MongoDB after maximum retries');
+                if (process.env.NODE_ENV === 'production') {
+                    process.exit(1);
+                }
                 throw err;
             }
-        })();
-    }
-    await streakIndexesPromise;
 
-    // Log connection success
-    if (process.env.NODE_ENV !== 'production') {
-        console.log(`✅ Connected to MongoDB (${dbName})`);
+            // Wait before retrying
+            console.log(`⏳ Retrying in ${RETRY_DELAY_MS / 1000} seconds...`);
+            await new Promise(resolve => setTimeout(resolve, RETRY_DELAY_MS));
+        }
     }
-
-    return database;
 }
 
 export function getDb() {

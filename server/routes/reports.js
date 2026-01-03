@@ -5,6 +5,127 @@ import { authGuard } from '../middleware/auth.js';
 
 const router = Router();
 
+function sanitizeFeedbackMessage(value, maxLength = 2000) {
+    if (!value || typeof value !== 'string') return '';
+    return value.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '').trim().slice(0, maxLength);
+}
+
+function sanitizeString(value, maxLength = 200) {
+    if (!value || typeof value !== 'string') return '';
+    return value.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '').trim().slice(0, maxLength);
+}
+
+function normalizeIsoDate(value) {
+    if (!value) return null;
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return null;
+    return date.toISOString();
+}
+
+function normalizeRelatedType(value) {
+    const raw = sanitizeString(value, 40).toLowerCase();
+    if (!raw) return null;
+    if (raw === 'contest' || raw === 'course') return raw;
+    return null;
+}
+
+const ALLOWED_EVIDENCE_MIME_TYPES = new Set([
+    'application/pdf',
+    'image/jpeg',
+    'image/png',
+    'image/gif',
+    'image/webp'
+]);
+
+function buildEvidenceUrl(fileId, mimeType) {
+    const safeId = sanitizeString(fileId, 200);
+    const safeMime = sanitizeString(mimeType, 120);
+    if (!safeId) return '';
+
+    if (safeMime.startsWith('image/')) {
+        return `https://lh3.googleusercontent.com/d/${safeId}`;
+    }
+
+    return `https://drive.google.com/file/d/${safeId}/view`;
+}
+
+function sanitizeActivitiesInput(value) {
+    if (value === undefined) return { provided: false };
+    if (!Array.isArray(value)) return { provided: true, error: 'Invalid activities' };
+
+    const items = value.map((raw) => {
+        const title = sanitizeString(raw?.title, 120);
+        if (!title) return { error: 'Activity title is required' };
+
+        const occurredAtInput = raw?.occurredAt;
+        const occurredAt = occurredAtInput ? normalizeIsoDate(occurredAtInput) : null;
+        if (occurredAtInput && !occurredAt) return { error: 'Invalid activity occurredAt' };
+
+        return {
+            id: sanitizeString(raw?.id, 80) || new ObjectId().toString(),
+            title,
+            description: sanitizeString(raw?.description, 2000) || null,
+            occurredAt
+        };
+    });
+
+    const error = items.find((i) => i?.error)?.error;
+    if (error) return { provided: true, error };
+
+    return { provided: true, value: items };
+}
+
+function sanitizeEvidenceInput(value) {
+    if (value === undefined) return { provided: false };
+    if (!Array.isArray(value)) return { provided: true, error: 'Invalid evidence' };
+
+    const items = value.map((raw) => {
+        const fileId = sanitizeString(raw?.fileId, 200);
+        const mimeType = sanitizeString(raw?.mimeType, 120);
+        const fileName = sanitizeString(raw?.fileName, 200);
+        const urlInput = sanitizeString(raw?.url, 1000);
+
+        const uploadedAtInput = raw?.uploadedAt;
+        const uploadedAt = uploadedAtInput ? normalizeIsoDate(uploadedAtInput) : new Date().toISOString();
+        if (uploadedAtInput && !uploadedAt) return { error: 'Invalid evidence uploadedAt' };
+
+        // Manual evidence: allow arbitrary URL input (http/https).
+        if (urlInput) {
+            if (!fileName) return { error: 'Evidence fileName is required' };
+            if (!/^https?:\/\//i.test(urlInput)) return { error: 'Evidence url must be http(s)' };
+
+            return {
+                id: sanitizeString(raw?.id, 80) || new ObjectId().toString(),
+                fileId: fileId || '',
+                fileName,
+                mimeType: mimeType || 'link',
+                url: urlInput,
+                uploadedAt
+            };
+        }
+
+        // Drive evidence: validated uploads (images/PDF) stored as Google Drive fileId.
+        if (!fileId) return { error: 'Evidence fileId is required' };
+        if (!mimeType) return { error: 'Evidence mimeType is required' };
+        if (!ALLOWED_EVIDENCE_MIME_TYPES.has(mimeType)) return { error: 'Unsupported evidence mimeType' };
+        if (!fileName) return { error: 'Evidence fileName is required' };
+
+        return {
+            id: sanitizeString(raw?.id, 80) || new ObjectId().toString(),
+            fileId,
+            fileName,
+            mimeType,
+            url: buildEvidenceUrl(fileId, mimeType),
+            uploadedAt
+        };
+    });
+
+    const error = items.find((i) => i?.error)?.error;
+    if (error) return { provided: true, error };
+
+    return { provided: true, value: items };
+}
+
 // ============ GET ALL REPORTS (for current user) ============
 router.get('/', authGuard, async (req, res) => {
     try {
@@ -46,6 +167,11 @@ router.get('/', authGuard, async (req, res) => {
             title: item.title,
             template: item.template,
             status: item.status,
+            reviewStatus: item.reviewStatus || 'draft',
+            submittedAt: item.submittedAt || null,
+            reviewedAt: item.reviewedAt || null,
+            relatedType: item.relatedType || null,
+            relatedId: item.relatedId || null,
             content: item.content,
             lastEdited: formatLastEdited(item.updatedAt),
             createdAt: item.createdAt,
@@ -109,6 +235,13 @@ router.get('/:id', authGuard, async (req, res) => {
             title: report.title,
             template: report.template,
             status: report.status,
+            reviewStatus: report.reviewStatus || 'draft',
+            submittedAt: report.submittedAt || null,
+            reviewedAt: report.reviewedAt || null,
+            relatedType: report.relatedType || null,
+            relatedId: report.relatedId || null,
+            activities: report.activities || [],
+            evidence: report.evidence || [],
             content: report.content,
             lastEdited: formatLastEdited(report.updatedAt),
             createdAt: report.createdAt,
@@ -124,7 +257,7 @@ router.get('/:id', authGuard, async (req, res) => {
 router.post('/', authGuard, async (req, res) => {
     try {
         const userId = req.user.id;
-        const { title, template, content, status = 'Draft' } = req.body;
+        const { title, template, content, status = 'Draft', relatedType, relatedId } = req.body;
 
         if (!title || !template) {
             return res.status(400).json({ error: 'Tiêu đề và template là bắt buộc' });
@@ -133,12 +266,24 @@ router.post('/', authGuard, async (req, res) => {
         const reports = getCollection('reports');
         const now = new Date();
 
+        const normalizedRelatedType = normalizeRelatedType(relatedType);
+        const normalizedRelatedId = sanitizeString(relatedId, 120) || null;
+
         const newReport = {
             userId,
             title,
             template,
             content: content || '',
+            activities: [],
+            evidence: [],
             status,
+            relatedType: normalizedRelatedType,
+            relatedId: normalizedRelatedType && normalizedRelatedId ? normalizedRelatedId : null,
+            reviewStatus: 'draft',
+            submittedAt: null,
+            reviewedAt: null,
+            reviewedById: null,
+            reviewStatusUpdatedAt: now,
             createdAt: now,
             updatedAt: now
         };
@@ -150,6 +295,13 @@ router.post('/', authGuard, async (req, res) => {
             title: newReport.title,
             template: newReport.template,
             status: newReport.status,
+            reviewStatus: newReport.reviewStatus,
+            submittedAt: newReport.submittedAt,
+            reviewedAt: newReport.reviewedAt,
+            activities: newReport.activities,
+            evidence: newReport.evidence,
+            relatedType: newReport.relatedType || null,
+            relatedId: newReport.relatedId || null,
             content: newReport.content,
             lastEdited: 'Vừa xong',
             createdAt: newReport.createdAt,
@@ -166,7 +318,7 @@ router.put('/:id', authGuard, async (req, res) => {
     try {
         const userId = req.user.id;
         const { id } = req.params;
-        const { title, content, status } = req.body;
+        const { title, content, status, activities, evidence, relatedType, relatedId } = req.body;
 
         if (!ObjectId.isValid(id)) {
             return res.status(400).json({ error: 'ID báo cáo không hợp lệ' });
@@ -188,9 +340,45 @@ router.put('/:id', authGuard, async (req, res) => {
             updatedAt: new Date()
         };
 
+        // If report was submitted/approved, editing content/title moves it back to draft.
+        const isContentEdit =
+            title !== undefined ||
+            content !== undefined ||
+            activities !== undefined ||
+            evidence !== undefined ||
+            relatedType !== undefined ||
+            relatedId !== undefined;
+        const existingReviewStatus = String(existing.reviewStatus || 'draft').toLowerCase();
+        if (isContentEdit && (existingReviewStatus === 'submitted' || existingReviewStatus === 'approved')) {
+            updateData.reviewStatus = 'draft';
+            updateData.submittedAt = null;
+            updateData.reviewedAt = null;
+            updateData.reviewedById = null;
+            updateData.reviewStatusUpdatedAt = updateData.updatedAt;
+        }
+
         if (title !== undefined) updateData.title = title;
         if (content !== undefined) updateData.content = content;
         if (status !== undefined) updateData.status = status;
+
+        if (relatedType !== undefined || relatedId !== undefined) {
+            const normalizedRelatedType = normalizeRelatedType(relatedType);
+            const normalizedRelatedId = sanitizeString(relatedId, 120) || null;
+            updateData.relatedType = normalizedRelatedType;
+            updateData.relatedId = normalizedRelatedType && normalizedRelatedId ? normalizedRelatedId : null;
+        }
+
+        const activitiesParsed = sanitizeActivitiesInput(activities);
+        if (activitiesParsed.provided && activitiesParsed.error) {
+            return res.status(400).json({ error: activitiesParsed.error });
+        }
+        if (activitiesParsed.provided) updateData.activities = activitiesParsed.value;
+
+        const evidenceParsed = sanitizeEvidenceInput(evidence);
+        if (evidenceParsed.provided && evidenceParsed.error) {
+            return res.status(400).json({ error: evidenceParsed.error });
+        }
+        if (evidenceParsed.provided) updateData.evidence = evidenceParsed.value;
 
         await reports.updateOne(
             { _id: new ObjectId(id) },
@@ -204,6 +392,15 @@ router.put('/:id', authGuard, async (req, res) => {
             title: updated.title,
             template: updated.template,
             status: updated.status,
+            reviewStatus: updated.reviewStatus || 'draft',
+            submittedAt: updated.submittedAt || null,
+            reviewedAt: updated.reviewedAt || null,
+            activities: updated.activities || [],
+            evidence: updated.evidence || [],
+            relatedType: updated.relatedType || null,
+            relatedId: updated.relatedId || null,
+            relatedType: updated.relatedType || null,
+            relatedId: updated.relatedId || null,
             content: updated.content,
             lastEdited: formatLastEdited(updated.updatedAt),
             createdAt: updated.createdAt,
@@ -272,7 +469,16 @@ router.post('/:id/duplicate', authGuard, async (req, res) => {
             title: `${original.title} (Bản sao)`,
             template: original.template,
             content: original.content,
+            activities: Array.isArray(original.activities) ? original.activities : [],
+            evidence: Array.isArray(original.evidence) ? original.evidence : [],
             status: 'Draft',
+            relatedType: original.relatedType || null,
+            relatedId: original.relatedId || null,
+            reviewStatus: 'draft',
+            submittedAt: null,
+            reviewedAt: null,
+            reviewedById: null,
+            reviewStatusUpdatedAt: now,
             createdAt: now,
             updatedAt: now
         };
@@ -284,6 +490,13 @@ router.post('/:id/duplicate', authGuard, async (req, res) => {
             title: duplicated.title,
             template: duplicated.template,
             status: duplicated.status,
+            reviewStatus: duplicated.reviewStatus,
+            submittedAt: duplicated.submittedAt,
+            reviewedAt: duplicated.reviewedAt,
+            activities: duplicated.activities,
+            evidence: duplicated.evidence,
+            relatedType: duplicated.relatedType || null,
+            relatedId: duplicated.relatedId || null,
             content: duplicated.content,
             lastEdited: 'Vừa xong',
             createdAt: duplicated.createdAt,
@@ -325,6 +538,158 @@ router.patch('/:id/status', authGuard, async (req, res) => {
     } catch (error) {
         console.error('[reports] Error updating status:', error);
         res.status(500).json({ error: 'Không thể cập nhật trạng thái' });
+    }
+});
+
+// ============ SUBMIT FOR REVIEW ============
+router.post('/:id/submit', authGuard, async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const { id } = req.params;
+
+        if (!ObjectId.isValid(id)) {
+            return res.status(400).json({ error: 'Invalid report id' });
+        }
+
+        const reports = getCollection('reports');
+        const now = new Date();
+
+        const result = await reports.findOneAndUpdate(
+            { _id: new ObjectId(id), userId },
+            { $set: { reviewStatus: 'submitted', submittedAt: now, reviewStatusUpdatedAt: now, updatedAt: now } },
+            { returnDocument: 'after' }
+        );
+
+        const updated = result?.value ?? result;
+        if (!updated) {
+            return res.status(404).json({ error: 'Report not found' });
+        }
+
+        res.json({
+            id: updated._id.toString(),
+            title: updated.title,
+            template: updated.template,
+            status: updated.status,
+            reviewStatus: updated.reviewStatus || 'submitted',
+            submittedAt: updated.submittedAt || now,
+            reviewedAt: updated.reviewedAt || null,
+            activities: updated.activities || [],
+            evidence: updated.evidence || [],
+            content: updated.content,
+            lastEdited: formatLastEdited(updated.updatedAt),
+            createdAt: updated.createdAt,
+            updatedAt: updated.updatedAt
+        });
+    } catch (error) {
+        console.error('[reports] Error submitting report:', error);
+        res.status(500).json({ error: 'Unable to submit report' });
+    }
+});
+
+// ============ FEEDBACK THREAD (for report owner) ============
+router.get('/:id/feedback', authGuard, async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const { id } = req.params;
+
+        if (!ObjectId.isValid(id)) {
+            return res.status(400).json({ error: 'Invalid report id' });
+        }
+
+        const reports = getCollection('reports');
+        const report = await reports.findOne({ _id: new ObjectId(id), userId }, { projection: { _id: 1 } });
+
+        if (!report) {
+            return res.status(404).json({ error: 'Report not found' });
+        }
+
+        const feedback = getCollection('report_feedback');
+        const users = getCollection('users');
+
+        const items = await feedback
+            .find({ reportId: new ObjectId(id) })
+            .sort({ createdAt: 1 })
+            .toArray();
+
+        const authorIds = [...new Set(items.map((f) => f.authorId).filter((aid) => ObjectId.isValid(String(aid))))].map(
+            (aid) => new ObjectId(String(aid))
+        );
+
+        const authors = authorIds.length
+            ? await users.find({ _id: { $in: authorIds } }, { projection: { name: 1, avatar: 1, role: 1 } }).toArray()
+            : [];
+        const authorMap = new Map(authors.map((u) => [u._id.toString(), u]));
+
+        res.json({
+            feedback: items.map((doc) => {
+                const author = authorMap.get(String(doc.authorId));
+                return {
+                    id: doc._id?.toString(),
+                    reportId: doc.reportId?.toString(),
+                    authorId: doc.authorId,
+                    authorRole: doc.authorRole,
+                    authorName: author?.name || null,
+                    authorAvatar: author?.avatar || null,
+                    message: doc.message || '',
+                    createdAt: doc.createdAt
+                };
+            })
+        });
+    } catch (error) {
+        console.error('[reports] Error fetching feedback:', error);
+        res.status(500).json({ error: 'Unable to fetch feedback' });
+    }
+});
+
+router.post('/:id/feedback', authGuard, async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const { id } = req.params;
+        const message = sanitizeFeedbackMessage(req.body?.message);
+
+        if (!ObjectId.isValid(id)) {
+            return res.status(400).json({ error: 'Invalid report id' });
+        }
+
+        if (!message) {
+            return res.status(400).json({ error: 'Message is required' });
+        }
+
+        const reports = getCollection('reports');
+        const report = await reports.findOne({ _id: new ObjectId(id), userId }, { projection: { _id: 1 } });
+
+        if (!report) {
+            return res.status(404).json({ error: 'Report not found' });
+        }
+
+        const feedback = getCollection('report_feedback');
+        const now = new Date();
+        const doc = {
+            reportId: new ObjectId(id),
+            reportOwnerId: userId,
+            authorId: userId,
+            authorRole: req.user.role || 'student',
+            message,
+            createdAt: now
+        };
+
+        const result = await feedback.insertOne(doc);
+
+        res.status(201).json({
+            feedback: {
+                id: result.insertedId.toString(),
+                reportId: doc.reportId.toString(),
+                authorId: doc.authorId,
+                authorRole: doc.authorRole,
+                authorName: null,
+                authorAvatar: null,
+                message: doc.message,
+                createdAt: doc.createdAt
+            }
+        });
+    } catch (error) {
+        console.error('[reports] Error creating feedback:', error);
+        res.status(500).json({ error: 'Unable to send feedback' });
     }
 });
 

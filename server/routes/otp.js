@@ -409,6 +409,28 @@ router.post('/verify', async (req, res, next) => {
             );
         }
 
+        // For registration verification, bind the verification token to the pending registration
+        // so the account is only created after completing profile + terms acceptance.
+        if (session.action === 'register_verify') {
+            const pendingRegistrations = getCollection('pending_registrations');
+            await pendingRegistrations.updateOne(
+                {
+                    email: normalizedEmail,
+                    status: { $in: ['PENDING', 'OTP_VERIFIED'] },
+                    expiresAt: { $gt: new Date() },
+                },
+                {
+                    $set: {
+                        status: 'OTP_VERIFIED',
+                        otpVerifiedAt: new Date(),
+                        verificationTokenHash,
+                        verificationExpiry,
+                        updatedAt: new Date(),
+                    }
+                }
+            );
+        }
+
         res.json({
             ok: true,
             message: 'Xác thực OTP thành công!',

@@ -1,13 +1,14 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Search, Star, BookOpen, Clock, PlayCircle, CheckCircle, Loader2, X, Phone, ExternalLink, Calendar, Copy, Check } from 'lucide-react';
-import { Button, Card, Badge, Tabs } from '../components/ui/Common';
+import { Button, Card, Badge, Tabs, Dropdown, DropdownOption } from '../components/ui/Common';
 import { useCourses, useDebounce, useEnrolledCourses } from '../lib/hooks';
 import { Course } from '../types';
 import { api } from '../lib/api';
 import OptimizedImage from '../components/OptimizedImage';
 import Pagination from '../components/Pagination';
 import Reviews from '../components/Reviews';
+import { LIBRARY_FIELDS, LibraryFieldValue, matchesLibraryField } from '../constants/libraryFields';
 
 // Helper functions
 const formatPrice = (price: number) => {
@@ -29,59 +30,77 @@ const LEVEL_MAP: Record<string, string> = {
   'Advanced': 'Nâng cao',
 };
 
+type CourseSortValue = 'newest' | 'ratingDesc' | 'priceAsc' | 'priceDesc';
+
+const COURSE_SORT_OPTIONS: DropdownOption[] = [
+  { value: 'newest', label: 'Mới nhất' },
+  { value: 'ratingDesc', label: 'Đánh giá cao' },
+  { value: 'priceAsc', label: 'Giá thấp → cao' },
+  { value: 'priceDesc', label: 'Giá cao → thấp' },
+];
+
 // Constants
 const ITEMS_PER_PAGE = 6;
 
 // --- MARKETPLACE LIST ---
 const Marketplace: React.FC = () => {
   const navigate = useNavigate();
-  const [activeCategory, setActiveCategory] = useState('');
+  const [activeField, setActiveField] = useState<LibraryFieldValue>('');
   const [activeLevel, setActiveLevel] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
+  const [sortValue, setSortValue] = useState<CourseSortValue>('newest');
+  const [showAllFields, setShowAllFields] = useState(false);
 
   const debouncedSearch = useDebounce(searchQuery, 300);
 
   // Fetch courses from database
   const { courses, isLoading, error, refetch } = useCourses({ limit: 50 });
 
-  // Filter courses locally
-  const filteredCourses = courses.filter(course => {
-    // Search filter
-    if (debouncedSearch) {
-      const query = debouncedSearch.toLowerCase();
-      const matchesSearch =
-        course.title.toLowerCase().includes(query) ||
-        course.instructor.toLowerCase().includes(query);
-      if (!matchesSearch) return false;
-    }
-
-    // Level filter
-    if (activeLevel && course.level !== activeLevel) {
-      return false;
-    }
-
-    // Category filter (based on title keywords for now)
-    if (activeCategory) {
-      const titleLower = course.title.toLowerCase();
-      switch (activeCategory) {
-        case 'programming':
-          if (!titleLower.match(/react|node|web|fullstack|python|java|code/i)) return false;
-          break;
-        case 'design':
-          if (!titleLower.match(/ui|ux|design|figma|creative/i)) return false;
-          break;
-        case 'data':
-          if (!titleLower.match(/data|ai|ml|machine|analysis|generative/i)) return false;
-          break;
-        case 'marketing':
-          if (!titleLower.match(/marketing|seo|content|social/i)) return false;
-          break;
+  // Filter + sort courses locally
+  const filteredCourses = useMemo(() => {
+    const filtered = courses.filter((course) => {
+      // Search filter
+      if (debouncedSearch) {
+        const query = debouncedSearch.toLowerCase();
+        const matchesSearch =
+          course.title.toLowerCase().includes(query) ||
+          course.instructor.toLowerCase().includes(query);
+        if (!matchesSearch) return false;
       }
-    }
 
-    return true;
-  });
+      // Level filter
+      if (activeLevel && course.level !== activeLevel) {
+        return false;
+      }
+
+      // Field filter (synced from Admin contest categories)
+      if (activeField) {
+        const haystack = `${course.title} ${course.description || ''} ${course.instructor}`;
+        if (!matchesLibraryField(activeField as Exclude<LibraryFieldValue, ''>, haystack)) return false;
+      }
+
+      return true;
+    });
+
+    const getCreatedAt = (course: Course) => (course.createdAt ? new Date(course.createdAt).getTime() : 0);
+
+    filtered.sort((a, b) => {
+      switch (sortValue) {
+        case 'ratingDesc':
+          return (b.rating || 0) - (a.rating || 0) || getCreatedAt(b) - getCreatedAt(a);
+        case 'priceAsc':
+          return (a.price || 0) - (b.price || 0) || getCreatedAt(b) - getCreatedAt(a);
+        case 'priceDesc':
+          return (b.price || 0) - (a.price || 0) || getCreatedAt(b) - getCreatedAt(a);
+        case 'newest':
+        default:
+          return getCreatedAt(b) - getCreatedAt(a);
+      }
+    });
+
+    return filtered;
+  }, [activeField, activeLevel, courses, debouncedSearch, sortValue]);
 
   // Pagination logic
   const totalPages = Math.ceil(filteredCourses.length / ITEMS_PER_PAGE);
@@ -95,7 +114,7 @@ const Marketplace: React.FC = () => {
   // Reset to page 1 when filters change
   useEffect(() => {
     setCurrentPage(1);
-  }, [debouncedSearch, activeCategory, activeLevel]);
+  }, [debouncedSearch, activeField, activeLevel, sortValue]);
 
   // Reset to page 1 if current page exceeds total pages
   useEffect(() => {
@@ -106,12 +125,76 @@ const Marketplace: React.FC = () => {
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      <div className="text-center mb-12">
-        <h1 className="text-3xl font-bold text-slate-900 mb-4">Thư viện khóa học</h1>
-        <p className="text-slate-500 max-w-2xl mx-auto">
-          Trau dồi kiến thức chuyên môn từ các chuyên gia hàng đầu. Lộ trình học tập được cá nhân hóa cho bạn.
-        </p>
-      </div>
+      {/* Intro hero section */}
+      <section className="relative overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-xl shadow-sky-100/60 mb-10">
+        <div className="absolute inset-0 bg-linear-to-br from-sky-50 via-white to-emerald-50 opacity-90" aria-hidden="true" />
+        <div className="absolute -top-24 right-8 h-48 w-48 rounded-full bg-sky-200/40 blur-3xl" aria-hidden="true" />
+        <div className="absolute -bottom-28 left-6 h-56 w-56 rounded-full bg-emerald-200/40 blur-3xl" aria-hidden="true" />
+        <div className="relative p-6 md:p-8 lg:p-10">
+          <div className="grid grid-cols-1 lg:grid-cols-[1.35fr_1fr] gap-8 items-center">
+            <div className="space-y-4 animate-fade-in-up">
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/80 border border-white/70 text-xs font-semibold text-sky-700 shadow-sm">
+                <BookOpen className="w-3.5 h-3.5" />
+                Thư viện khóa học
+              </div>
+              <h2 className="text-3xl md:text-4xl font-bold text-slate-900 leading-tight">
+                Học đúng trọng tâm, bứt phá kỹ năng chuyên môn
+              </h2>
+              <p className="text-sm md:text-base text-slate-600 leading-relaxed max-w-xl md:max-w-none">
+                Khám phá khóa học theo lĩnh vực, trình độ và nhận đề xuất phù hợp.
+              </p>
+              <div className="flex flex-wrap gap-3">
+                <div className="flex items-center gap-2 rounded-xl bg-white/90 border border-slate-100 px-3 py-2 text-xs text-slate-600 shadow-sm">
+                  <Search className="w-4 h-4 text-sky-500" />
+                  Tìm theo từ khóa
+                </div>
+                <div className="flex items-center gap-2 rounded-xl bg-white/90 border border-slate-100 px-3 py-2 text-xs text-slate-600 shadow-sm">
+                  <Badge className="bg-white/90 text-slate-700 border border-slate-200">Trình độ</Badge>
+                  Lọc nhanh
+                </div>
+                <div className="flex items-center gap-2 rounded-xl bg-white/90 border border-slate-100 px-3 py-2 text-xs text-slate-600 shadow-sm">
+                  <Star className="w-4 h-4 text-amber-500" />
+                  Đánh giá cao
+                </div>
+              </div>
+            </div>
+
+            {(() => {
+              const fieldCount = LIBRARY_FIELDS.length;
+              const visibleCount = paginatedCourses.length;
+              const pageCount = totalPages;
+              const resultLabel = debouncedSearch || activeField || activeLevel ? 'Kết quả phù hợp' : 'Tổng khóa học';
+              return (
+                <div className="space-y-4 animate-fade-in-up">
+                  <div className="rounded-2xl border border-white/80 bg-white/80 p-5 shadow-md">
+                    <div className="text-xs font-semibold uppercase tracking-widest text-slate-400">{resultLabel}</div>
+                    <div className="mt-3 flex items-end gap-2">
+                      <span className="text-3xl font-bold text-slate-900">{isLoading ? '--' : filteredCourses.length}</span>
+                      <span className="text-sm text-slate-500">khóa học</span>
+                    </div>
+                    <p className="mt-2 text-xs text-slate-500">Cập nhật liên tục, ưu tiên nội dung mới.</p>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-1 gap-3">
+                    <div className="rounded-xl border border-sky-100 bg-sky-50/80 px-4 py-3">
+                      <div className="text-xs font-semibold text-sky-700">Đang hiển thị</div>
+                      <div className="mt-1 text-2xl font-bold text-sky-800">{isLoading ? '--' : visibleCount}</div>
+                    </div>
+                    <div className="rounded-xl border border-emerald-100 bg-emerald-50/80 px-4 py-3">
+                      <div className="text-xs font-semibold text-emerald-700">Lĩnh vực</div>
+                      <div className="mt-1 text-2xl font-bold text-emerald-800">{fieldCount}</div>
+                    </div>
+                    <div className="rounded-xl border border-amber-100 bg-amber-50/80 px-4 py-3">
+                      <div className="text-xs font-semibold text-amber-700">Trang</div>
+                      <div className="mt-1 text-2xl font-bold text-amber-800">{isLoading ? '--' : pageCount}</div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+        </div>
+      </section>
 
       {/* Search */}
       <div className="max-w-md mx-auto mb-8">
@@ -136,21 +219,32 @@ const Marketplace: React.FC = () => {
         </div>
       </div>
 
-      {/* Categories */}
-      <div className="flex flex-wrap justify-center gap-3 mb-6">
-        {CATEGORIES.map((cat) => (
+      {/* Fields */}
+      <div className="flex flex-wrap justify-center gap-3 mb-3">
+        {(showAllFields ? LIBRARY_FIELDS : LIBRARY_FIELDS.slice(0, 5)).map((field) => (
           <button
-            key={cat.value}
-            onClick={() => setActiveCategory(cat.value)}
-            className={`px-4 py-2 rounded-full text-sm font-medium transition-all ${activeCategory === cat.value
+            key={field.value || 'all'}
+            onClick={() => setActiveField(field.value)}
+            className={`px-4 py-2 rounded-full text-sm font-medium transition-all ${activeField === field.value
               ? 'bg-primary-600 text-white shadow-md'
               : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
               }`}
           >
-            {cat.label}
+            {field.label}
           </button>
         ))}
       </div>
+      {LIBRARY_FIELDS.length > 5 && (
+        <div className="flex justify-center mb-6">
+          <button
+            type="button"
+            onClick={() => setShowAllFields((prev) => !prev)}
+            className="text-sm font-medium text-primary-700 hover:text-primary-800"
+          >
+            {showAllFields ? 'Thu gọn' : 'Xem thêm'}
+          </button>
+        </div>
+      )}
 
       {/* Level filters */}
       <div className="flex flex-wrap justify-center gap-2 mb-10">
@@ -182,12 +276,22 @@ const Marketplace: React.FC = () => {
       </div>
 
       {/* Course Grid */}
+      <div className="max-w-sm mx-auto mb-6">
+        <Dropdown
+          label="Sắp xếp"
+          headerText="Sắp xếp"
+          value={sortValue}
+          onChange={(value) => setSortValue(value as CourseSortValue)}
+          options={COURSE_SORT_OPTIONS}
+        />
+      </div>
+
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
         {isLoading ? (
           // Loading skeleton
           [...Array(8)].map((_, i) => (
             <Card key={i} className="animate-pulse">
-              <div className="aspect-[4/3] bg-slate-200" />
+              <div className="aspect-4/3 bg-slate-200" />
               <div className="p-4">
                 <div className="h-5 w-full bg-slate-200 rounded mb-2" />
                 <div className="h-3 w-24 bg-slate-100 rounded mb-3" />
@@ -212,7 +316,7 @@ const Marketplace: React.FC = () => {
                 className="group cursor-pointer hover:-translate-y-1 transition-transform"
                 onClick={() => navigate(`/courses/${course.id}`)}
               >
-                <div className="aspect-[4/3] overflow-hidden bg-slate-200 relative">
+                <div className="aspect-4/3 overflow-hidden bg-slate-200 relative">
                   <OptimizedImage
                     src={course.image || `https://picsum.photos/seed/${course.id}/400/300`}
                     alt={course.title}
@@ -265,10 +369,11 @@ const Marketplace: React.FC = () => {
             <p className="text-slate-500 mb-2">Không tìm thấy khóa học nào</p>
             <p className="text-sm text-slate-400 mb-4">Thử thay đổi bộ lọc hoặc từ khóa tìm kiếm</p>
             <Button variant="secondary" onClick={() => {
-              setActiveCategory('');
+              setActiveField('');
               setActiveLevel('');
               setSearchQuery('');
               setCurrentPage(1);
+              setShowAllFields(false);
             }}>
               Xóa bộ lọc
             </Button>
@@ -594,32 +699,19 @@ const CourseDetail: React.FC = () => {
                 Đang kiểm tra...
               </Button>
             ) : enrollmentStatus?.enrolled ? (
-              // Đã đăng ký - hiển thị trạng thái
               <div className="mb-3">
                 <div className="w-full p-3 bg-emerald-50 border border-emerald-200 rounded-lg mb-2">
-                  <div className="flex items-center justify-center gap-2 text-emerald-700 font-medium">
-                    <CheckCircle className="w-5 h-5" />
-                    <span>Đã mua khóa học</span>
-                  </div>
-                  {enrollmentStatus.enrolledAt && (
-                    <p className="text-xs text-emerald-600 mt-1">
-                      Ngày đăng ký: {formatDate(enrollmentStatus.enrolledAt)}
-                    </p>
-                  )}
-                  {typeof enrollmentStatus.progress === 'number' && (
-                    <div className="mt-2">
-                      <div className="flex justify-between text-xs text-slate-600 mb-1">
-                        <span>Tiến độ học</span>
-                        <span>{enrollmentStatus.progress}%</span>
-                      </div>
-                      <div className="w-full bg-slate-200 rounded-full h-2">
-                        <div
-                          className="bg-emerald-500 h-2 rounded-full transition-all duration-300"
-                          style={{ width: `${enrollmentStatus.progress}%` }}
-                        />
-                      </div>
+                  <div className="flex flex-col gap-1 text-emerald-700 font-medium">
+                    <div className="flex items-center gap-2">
+                      <CheckCircle className="w-5 h-5" />
+                      <span>Đã mua khóa học</span>
                     </div>
-                  )}
+                    {enrollmentStatus.enrolledAt && (
+                      <span className="text-xs text-emerald-600 pl-7">
+                        Ngày đăng ký: {formatDate(enrollmentStatus.enrolledAt)}
+                      </span>
+                    )}
+                  </div>
                 </div>
                 <Button
                   className="w-full"
@@ -714,10 +806,6 @@ const CourseDetail: React.FC = () => {
             <Button variant="secondary" className="w-full" onClick={() => navigate('/marketplace')}>
               Quay lại danh sách
             </Button>
-
-            <div className="mt-4 text-center text-xs text-slate-500">
-              Hoàn tiền trong 30 ngày nếu không hài lòng
-            </div>
           </Card>
         </div>
       </div>

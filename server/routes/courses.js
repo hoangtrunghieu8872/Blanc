@@ -32,6 +32,13 @@ const courseFields = {
     },
 };
 
+const ALLOWED_LEVELS = new Set(['Beginner', 'Intermediate', 'Advanced']);
+const ALLOWED_SORT_FIELDS = new Set(['createdAt', 'rating', 'price', 'title', 'reviewsCount']);
+
+function escapeRegExp(value = '') {
+    return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 // ============ NOTIFICATION HELPERS ============
 
 /**
@@ -137,7 +144,18 @@ router.get('/', async (req, res, next) => {
     try {
         await connectToDatabase();
         const limit = Math.min(Number(req.query.limit) || 50, 100);
-        const level = typeof req.query.level === 'string' ? req.query.level : undefined;
+        const page = Math.max(Number(req.query.page) || 1, 1);
+        const skip = (page - 1) * limit;
+
+        const levelRaw = typeof req.query.level === 'string' ? req.query.level : undefined;
+        const level = levelRaw && ALLOWED_LEVELS.has(levelRaw) ? levelRaw : undefined;
+        const search = typeof req.query.search === 'string' ? req.query.search : undefined;
+        const instructor = typeof req.query.instructor === 'string' ? req.query.instructor : undefined;
+        const minPrice = req.query.minPrice !== undefined ? Number(req.query.minPrice) : undefined;
+        const maxPrice = req.query.maxPrice !== undefined ? Number(req.query.maxPrice) : undefined;
+        const isPublic = req.query.isPublic !== undefined ? req.query.isPublic === 'true' : undefined;
+        const sortBy = typeof req.query.sortBy === 'string' ? req.query.sortBy : undefined;
+        const sortOrderRaw = typeof req.query.sortOrder === 'string' ? req.query.sortOrder : undefined;
 
         // Base query - exclude deleted courses
         const query = { deletedAt: { $exists: false } };
@@ -145,13 +163,52 @@ router.get('/', async (req, res, next) => {
             query.level = level;
         }
 
-        const courses = await getCollection('courses')
+        if (isPublic !== undefined) {
+            query.isPublic = isPublic;
+        }
+
+        if (Number.isFinite(minPrice) || Number.isFinite(maxPrice)) {
+            query.price = {};
+            if (Number.isFinite(minPrice)) query.price.$gte = minPrice;
+            if (Number.isFinite(maxPrice)) query.price.$lte = maxPrice;
+        }
+
+        if (instructor && instructor.trim()) {
+            const safeInstructor = escapeRegExp(instructor.trim().slice(0, 100));
+            query.instructor = { $regex: safeInstructor, $options: 'i' };
+        }
+
+        if (search && search.trim()) {
+            const safeSearch = escapeRegExp(search.trim().slice(0, 200));
+            query.$or = [
+                { title: { $regex: safeSearch, $options: 'i' } },
+                { instructor: { $regex: safeSearch, $options: 'i' } },
+                { description: { $regex: safeSearch, $options: 'i' } },
+                { code: { $regex: safeSearch, $options: 'i' } },
+            ];
+        }
+
+        const sortOrder = sortOrderRaw === 'asc' ? 1 : -1;
+        const sortField = sortBy && ALLOWED_SORT_FIELDS.has(sortBy) ? sortBy : 'createdAt';
+        const sort = { [sortField]: sortOrder, _id: -1 };
+
+        const collection = getCollection('courses');
+        const total = await collection.countDocuments(query);
+
+        const courses = await collection
             .find(query, courseFields)
-            .sort({ createdAt: -1 })
+            .sort(sort)
+            .skip(skip)
             .limit(limit)
             .toArray();
 
-        res.json({ courses: courses.map(mapCourse) });
+        res.json({
+            courses: courses.map(mapCourse),
+            total,
+            page,
+            limit,
+            totalPages: Math.ceil(total / limit),
+        });
     } catch (error) {
         next(error);
     }

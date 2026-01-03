@@ -2,11 +2,13 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Button, Input, Card } from './ui/Common';
 import { api, API_BASE_URL } from '../lib/api';
+import { clientStorage } from '../lib/cache';
 import {
     User, Mail, Lock, Bell, Shield, Eye, EyeOff,
     Camera, Loader2, CheckCircle, AlertCircle, Save,
-    ChevronDown, Check, X, Search
+    ChevronDown, Check, X, Search, Crown
 } from 'lucide-react';
+import MembershipManager from './MembershipManager';
 import {
     ROLES, ROLE_COLORS, EXPERIENCE_LEVELS, YEARS_EXPERIENCE,
     TIMEZONES, LANGUAGES, SKILLS, TECH_STACK, COMMUNICATION_TOOLS,
@@ -344,7 +346,7 @@ interface PasswordChangeData {
     confirmPassword: string;
 }
 
-type SettingsTab = 'profile' | 'security' | 'notifications' | 'privacy';
+type SettingsTab = 'profile' | 'security' | 'notifications' | 'privacy' | 'membership';
 type MatchingListKeys = 'secondaryRoles' | 'languages' | 'skills' | 'techStack' | 'communicationTools';
 type ContestListKeys = 'contestInterests' | 'preferredContestFormats' | 'portfolioLinks';
 
@@ -383,6 +385,20 @@ const createDefaultConsents = (): ProfileConsents => ({
     allowRecommendations: true,
     shareExtendedProfile: false,
 });
+
+const DEFAULT_NOTIFICATION_SETTINGS = {
+    email: true,
+    push: true,
+    contestReminders: true,
+    courseUpdates: true,
+    marketing: false,
+};
+
+const DEFAULT_PRIVACY_SETTINGS = {
+    showProfile: true,
+    showActivity: true,
+    showAchievements: true,
+};
 
 const parseListInput = (value: string, maxItems = 20) =>
     value.split(',').map(item => item.trim()).filter(Boolean).slice(0, maxItems);
@@ -424,8 +440,16 @@ const UserSettings: React.FC = () => {
     const settingsTabFromUrl = searchParams.get('settingsTab') as SettingsTab | null;
 
     const [activeTab, setActiveTab] = useState<SettingsTab>(() => {
-        if (settingsTabFromUrl && ['profile', 'security', 'notifications', 'privacy'].includes(settingsTabFromUrl)) {
+        if (settingsTabFromUrl && ['profile', 'security', 'notifications', 'privacy', 'membership'].includes(settingsTabFromUrl)) {
             return settingsTabFromUrl;
+        }
+        try {
+            const saved = localStorage.getItem(clientStorage.buildKey('ui', 'settingsTab'));
+            if (saved && ['profile', 'security', 'notifications', 'privacy', 'membership'].includes(saved)) {
+                return saved as SettingsTab;
+            }
+        } catch {
+            // ignore
         }
         return 'profile';
     });
@@ -436,13 +460,26 @@ const UserSettings: React.FC = () => {
     const [isTestingNotification, setIsTestingNotification] = useState(false);
     const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
     const avatarInputRef = useRef<HTMLInputElement>(null);
+    const notificationSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const notificationRequestIdRef = useRef(0);
+    const privacySaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const privacyRequestIdRef = useRef(0);
 
     // Update tab when URL changes
     useEffect(() => {
-        if (settingsTabFromUrl && ['profile', 'security', 'notifications', 'privacy'].includes(settingsTabFromUrl)) {
+        if (settingsTabFromUrl && ['profile', 'security', 'notifications', 'privacy', 'membership'].includes(settingsTabFromUrl)) {
             setActiveTab(settingsTabFromUrl);
         }
     }, [settingsTabFromUrl]);
+
+    // Persist UI preference (last opened settings tab)
+    useEffect(() => {
+        try {
+            localStorage.setItem(clientStorage.buildKey('ui', 'settingsTab'), activeTab);
+        } catch {
+            // ignore
+        }
+    }, [activeTab]);
 
     // Form states
     const [profileForm, setProfileForm] = useState<{
@@ -471,20 +508,22 @@ const UserSettings: React.FC = () => {
         new: false,
         confirm: false,
     });
+    const [twoFactorEnabled, setTwoFactorEnabled] = useState(false);
+    const [twoFactorInitial, setTwoFactorInitial] = useState(false);
+    const [twoFactorPassword, setTwoFactorPassword] = useState('');
+    const [showTwoFactorPassword, setShowTwoFactorPassword] = useState(false);
+    const [isTwoFactorLoading, setIsTwoFactorLoading] = useState(true);
+    const [isTwoFactorSaving, setIsTwoFactorSaving] = useState(false);
 
-    const [notificationSettings, setNotificationSettings] = useState({
-        email: true,
-        push: true,
-        contestReminders: true,
-        courseUpdates: true,
-        marketing: false,
-    });
+    const [notificationSettings, setNotificationSettings] = useState(() => ({ ...DEFAULT_NOTIFICATION_SETTINGS }));
+    const [isNotificationSaving, setIsNotificationSaving] = useState(false);
+    const notificationPendingRef = useRef(notificationSettings);
+    const notificationLastSavedRef = useRef(notificationSettings);
 
-    const [privacySettings, setPrivacySettings] = useState({
-        showProfile: true,
-        showActivity: true,
-        showAchievements: true,
-    });
+    const [privacySettings, setPrivacySettings] = useState(() => ({ ...DEFAULT_PRIVACY_SETTINGS }));
+    const [isPrivacySaving, setIsPrivacySaving] = useState(false);
+    const privacyPendingRef = useRef(privacySettings);
+    const privacyLastSavedRef = useRef(privacySettings);
 
     // Fetch user profile
     const fetchProfile = useCallback(async () => {
@@ -509,18 +548,21 @@ const UserSettings: React.FC = () => {
                     ...(data.consents || {})
                 },
             });
-            setNotificationSettings(data.notifications || {
-                email: true,
-                push: true,
-                contestReminders: true,
-                courseUpdates: true,
-                marketing: false,
-            });
-            setPrivacySettings(data.privacy || {
-                showProfile: true,
-                showActivity: true,
-                showAchievements: true,
-            });
+            const resolvedNotificationSettings = {
+                ...DEFAULT_NOTIFICATION_SETTINGS,
+                ...(data.notifications || {}),
+            };
+            const resolvedPrivacySettings = {
+                ...DEFAULT_PRIVACY_SETTINGS,
+                ...(data.privacy || {}),
+            };
+
+            setNotificationSettings(resolvedNotificationSettings);
+            notificationPendingRef.current = resolvedNotificationSettings;
+            notificationLastSavedRef.current = resolvedNotificationSettings;
+            setPrivacySettings(resolvedPrivacySettings);
+            privacyPendingRef.current = resolvedPrivacySettings;
+            privacyLastSavedRef.current = resolvedPrivacySettings;
 
             // Sync with localStorage to keep sidebar and header in sync
             const userStr = localStorage.getItem('user');
@@ -549,13 +591,141 @@ const UserSettings: React.FC = () => {
         }
     }, []);
 
+    const fetchTwoFactorStatus = useCallback(async () => {
+        try {
+            setIsTwoFactorLoading(true);
+            const data = await api.get<{ twoFactorEnabled: boolean }>('/auth/settings/2fa');
+            const enabled = data.twoFactorEnabled === true;
+            setTwoFactorEnabled(enabled);
+            setTwoFactorInitial(enabled);
+        } catch (err) {
+            showToast(err instanceof Error ? err.message : 'Khong the tai trang thai 2FA', 'error');
+        } finally {
+            setIsTwoFactorLoading(false);
+        }
+    }, []);
+
     useEffect(() => {
         fetchProfile();
-    }, [fetchProfile]);
+        fetchTwoFactorStatus();
+    }, [fetchProfile, fetchTwoFactorStatus]);
+
+    useEffect(() => {
+        return () => {
+            if (notificationSaveTimerRef.current) {
+                clearTimeout(notificationSaveTimerRef.current);
+            }
+            if (privacySaveTimerRef.current) {
+                clearTimeout(privacySaveTimerRef.current);
+            }
+        };
+    }, []);
 
     const showToast = (message: string, type: 'success' | 'error') => {
         setToast({ message, type });
     };
+
+    const saveNotificationSettings = useCallback(async (nextSettings: typeof notificationSettings, options?: { silent?: boolean }) => {
+        if (JSON.stringify(notificationLastSavedRef.current) === JSON.stringify(nextSettings)) {
+            return;
+        }
+
+        const requestId = ++notificationRequestIdRef.current;
+        setIsNotificationSaving(true);
+        try {
+            await api.patch('/users/me/notifications', nextSettings);
+            if (requestId !== notificationRequestIdRef.current) {
+                return;
+            }
+            notificationLastSavedRef.current = nextSettings;
+            if (!options?.silent) {
+                showToast('Da cap nhat cai dat thong bao', 'success');
+            }
+        } catch (err) {
+            if (requestId !== notificationRequestIdRef.current) {
+                return;
+            }
+            const fallback = notificationLastSavedRef.current;
+            if (fallback) {
+                setNotificationSettings(fallback);
+                notificationPendingRef.current = fallback;
+            }
+            showToast(err instanceof Error ? err.message : 'Khong the cap nhat cai dat thong bao', 'error');
+        } finally {
+            if (requestId === notificationRequestIdRef.current) {
+                setIsNotificationSaving(false);
+            }
+        }
+    }, [showToast]);
+
+    const scheduleNotificationSave = useCallback((nextSettings: typeof notificationSettings) => {
+        notificationPendingRef.current = nextSettings;
+        if (notificationSaveTimerRef.current) {
+            clearTimeout(notificationSaveTimerRef.current);
+        }
+        notificationSaveTimerRef.current = setTimeout(() => {
+            saveNotificationSettings(notificationPendingRef.current, { silent: true });
+        }, 600);
+    }, [saveNotificationSettings]);
+
+    const handleNotificationToggle = useCallback((key: keyof typeof notificationSettings, value: boolean) => {
+        setNotificationSettings(prev => {
+            const nextSettings = { ...prev, [key]: value };
+            scheduleNotificationSave(nextSettings);
+            return nextSettings;
+        });
+    }, [scheduleNotificationSave]);
+
+    const savePrivacySettings = useCallback(async (nextSettings: typeof privacySettings, options?: { silent?: boolean }) => {
+        if (JSON.stringify(privacyLastSavedRef.current) === JSON.stringify(nextSettings)) {
+            return;
+        }
+
+        const requestId = ++privacyRequestIdRef.current;
+        setIsPrivacySaving(true);
+        try {
+            await api.patch('/users/me/privacy', nextSettings);
+            if (requestId !== privacyRequestIdRef.current) {
+                return;
+            }
+            privacyLastSavedRef.current = nextSettings;
+            if (!options?.silent) {
+                showToast('Da cap nhat cai dat quyen rieng tu', 'success');
+            }
+        } catch (err) {
+            if (requestId !== privacyRequestIdRef.current) {
+                return;
+            }
+            const fallback = privacyLastSavedRef.current;
+            if (fallback) {
+                setPrivacySettings(fallback);
+                privacyPendingRef.current = fallback;
+            }
+            showToast(err instanceof Error ? err.message : 'Khong the cap nhat cai dat quyen rieng tu', 'error');
+        } finally {
+            if (requestId === privacyRequestIdRef.current) {
+                setIsPrivacySaving(false);
+            }
+        }
+    }, [showToast]);
+
+    const schedulePrivacySave = useCallback((nextSettings: typeof privacySettings) => {
+        privacyPendingRef.current = nextSettings;
+        if (privacySaveTimerRef.current) {
+            clearTimeout(privacySaveTimerRef.current);
+        }
+        privacySaveTimerRef.current = setTimeout(() => {
+            savePrivacySettings(privacyPendingRef.current, { silent: true });
+        }, 600);
+    }, [savePrivacySettings]);
+
+    const handlePrivacyToggle = useCallback((key: keyof typeof privacySettings, value: boolean) => {
+        setPrivacySettings(prev => {
+            const nextSettings = { ...prev, [key]: value };
+            schedulePrivacySave(nextSettings);
+            return nextSettings;
+        });
+    }, [schedulePrivacySave]);
 
     const updateMatchingProfileList = (key: MatchingListKeys, rawValue: string, maxItems = 20) => {
         const parsedList = parseListInput(rawValue, maxItems);
@@ -823,30 +993,55 @@ const UserSettings: React.FC = () => {
         }
     };
 
+    const handleSaveTwoFactor = async () => {
+        if (twoFactorEnabled === twoFactorInitial) {
+            return;
+        }
+        if (!twoFactorPassword) {
+            showToast('Vui long nhap mat khau de cap nhat 2FA', 'error');
+            return;
+        }
+
+        setIsTwoFactorSaving(true);
+        try {
+            const data = await api.patch<{ twoFactorEnabled: boolean; message?: string }>('/auth/settings/2fa', {
+                enabled: twoFactorEnabled,
+                password: twoFactorPassword,
+            });
+            const updated = data.twoFactorEnabled === true;
+            setTwoFactorEnabled(updated);
+            setTwoFactorInitial(updated);
+            setTwoFactorPassword('');
+            setShowTwoFactorPassword(false);
+            showToast(data.message || (updated ? '2FA da duoc bat' : '2FA da duoc tat'), 'success');
+        } catch (err) {
+            const message = err instanceof Error ? err.message : 'Khong the cap nhat 2FA';
+            const vietnameseErrors: Record<string, string> = {
+                'Password confirmation required.': 'Vui long nhap mat khau de cap nhat 2FA.',
+                'Invalid password.': 'Mat khau khong dung.',
+            };
+            showToast(vietnameseErrors[message] || message, 'error');
+        } finally {
+            setIsTwoFactorSaving(false);
+        }
+    };
+
     // Save notification settings
     const handleSaveNotifications = async () => {
-        setIsSaving(true);
-        try {
-            await api.patch('/users/me/notifications', notificationSettings);
-            showToast('Đã cập nhật cài đặt thông báo', 'success');
-        } catch (err) {
-            showToast(err instanceof Error ? err.message : 'Không thể cập nhật', 'error');
-        } finally {
-            setIsSaving(false);
+        if (notificationSaveTimerRef.current) {
+            clearTimeout(notificationSaveTimerRef.current);
         }
+        notificationPendingRef.current = notificationSettings;
+        await saveNotificationSettings(notificationSettings);
     };
 
     // Save privacy settings
     const handleSavePrivacy = async () => {
-        setIsSaving(true);
-        try {
-            await api.patch('/users/me/privacy', privacySettings);
-            showToast('Đã cập nhật cài đặt quyền riêng tư', 'success');
-        } catch (err) {
-            showToast(err instanceof Error ? err.message : 'Không thể cập nhật', 'error');
-        } finally {
-            setIsSaving(false);
+        if (privacySaveTimerRef.current) {
+            clearTimeout(privacySaveTimerRef.current);
         }
+        privacyPendingRef.current = privacySettings;
+        await savePrivacySettings(privacySettings);
     };
 
     // Test notification
@@ -907,6 +1102,8 @@ const UserSettings: React.FC = () => {
         }
 
         switch (activeTab) {
+            case 'membership':
+                return <MembershipManager />;
             case 'profile':
                 return (
                     <Card className="p-6">
@@ -1394,6 +1591,71 @@ const UserSettings: React.FC = () => {
                             Bảo mật tài khoản
                         </h3>
 
+                        <div className="mb-8 rounded-lg border border-slate-200 bg-slate-50 p-4">
+                            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                                <div>
+                                    <p className="font-medium text-slate-900">Xác thực 2 bước (2FA)</p>
+                                    <p className="text-sm text-slate-500">Bật 2FA để yêu cầu mã OTP khi đăng nhập.</p>
+                                </div>
+                                <div className="flex items-center gap-3">
+                                    {isTwoFactorLoading && (
+                                        <Loader2 className="w-4 h-4 animate-spin text-slate-400" />
+                                    )}
+                                    <ToggleSwitch
+                                        checked={twoFactorEnabled}
+                                        onChange={(checked) => setTwoFactorEnabled(checked)}
+                                        disabled={isTwoFactorLoading || isTwoFactorSaving}
+                                        label="Two-factor authentication"
+                                        id="two-factor-toggle"
+                                    />
+                                </div>
+                            </div>
+                            {twoFactorEnabled !== twoFactorInitial && (
+                                <div className="mt-4 space-y-3">
+                                    <div>
+                                        <label className="block text-sm font-medium text-slate-700 mb-1">
+                                            Mật khẩu xác nhận <span className="text-red-500">*</span>
+                                        </label>
+                                        <div className="relative">
+                                            <Input
+                                                type={showTwoFactorPassword ? 'text' : 'password'}
+                                                value={twoFactorPassword}
+                                                onChange={(e) => setTwoFactorPassword(e.target.value)}
+                                                placeholder="Nhập mật khẩu hiện tại"
+                                                autoComplete="current-password"
+                                                disabled={isTwoFactorSaving}
+                                            />
+                                            <button
+                                                type="button"
+                                                onClick={() => setShowTwoFactorPassword(prev => !prev)}
+                                                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                                                disabled={isTwoFactorSaving}
+                                            >
+                                                {showTwoFactorPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div className="flex justify-end">
+                                        <Button
+                                            type="button"
+                                            onClick={handleSaveTwoFactor}
+                                            disabled={isTwoFactorSaving || !twoFactorPassword}
+                                        >
+                                            {isTwoFactorSaving ? (
+                                                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                            ) : (
+                                                <Shield className="w-4 h-4 mr-2" />
+                                            )}
+                                            Cập nhật 2FA
+                                        </Button>
+                                    </div>
+                                </div>
+                            )}
+                            <p className="text-xs text-slate-500 mt-3">
+                                Thao tác bật/tắt yêu cầu mật khẩu để xác nhận.
+                            </p>
+                        </div>
+
                         <form onSubmit={handleChangePassword} className="space-y-6">
                             <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-6">
                                 <p className="text-sm text-amber-800">
@@ -1552,7 +1814,7 @@ const UserSettings: React.FC = () => {
                                 </div>
                                 <ToggleSwitch
                                     checked={notificationSettings.email}
-                                    onChange={(checked) => setNotificationSettings(prev => ({ ...prev, email: checked }))}
+                                    onChange={(checked) => handleNotificationToggle('email', checked)}
                                 />
                             </div>
 
@@ -1563,7 +1825,7 @@ const UserSettings: React.FC = () => {
                                 </div>
                                 <ToggleSwitch
                                     checked={notificationSettings.push}
-                                    onChange={(checked) => setNotificationSettings(prev => ({ ...prev, push: checked }))}
+                                    onChange={(checked) => handleNotificationToggle('push', checked)}
                                 />
                             </div>
 
@@ -1574,7 +1836,7 @@ const UserSettings: React.FC = () => {
                                 </div>
                                 <ToggleSwitch
                                     checked={notificationSettings.contestReminders}
-                                    onChange={(checked) => setNotificationSettings(prev => ({ ...prev, contestReminders: checked }))}
+                                    onChange={(checked) => handleNotificationToggle('contestReminders', checked)}
                                 />
                             </div>
 
@@ -1585,7 +1847,7 @@ const UserSettings: React.FC = () => {
                                 </div>
                                 <ToggleSwitch
                                     checked={notificationSettings.courseUpdates}
-                                    onChange={(checked) => setNotificationSettings(prev => ({ ...prev, courseUpdates: checked }))}
+                                    onChange={(checked) => handleNotificationToggle('courseUpdates', checked)}
                                 />
                             </div>
 
@@ -1596,13 +1858,13 @@ const UserSettings: React.FC = () => {
                                 </div>
                                 <ToggleSwitch
                                     checked={notificationSettings.marketing}
-                                    onChange={(checked) => setNotificationSettings(prev => ({ ...prev, marketing: checked }))}
+                                    onChange={(checked) => handleNotificationToggle('marketing', checked)}
                                 />
                             </div>
 
                             <div className="flex justify-end pt-4">
-                                <Button onClick={handleSaveNotifications} disabled={isSaving}>
-                                    {isSaving ? (
+                                <Button onClick={handleSaveNotifications} disabled={isNotificationSaving}>
+                                    {isNotificationSaving ? (
                                         <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                                     ) : (
                                         <Save className="w-4 h-4 mr-2" />
@@ -1630,7 +1892,7 @@ const UserSettings: React.FC = () => {
                                 </div>
                                 <ToggleSwitch
                                     checked={privacySettings.showProfile}
-                                    onChange={(checked) => setPrivacySettings(prev => ({ ...prev, showProfile: checked }))}
+                                    onChange={(checked) => handlePrivacyToggle('showProfile', checked)}
                                 />
                             </div>
 
@@ -1641,7 +1903,7 @@ const UserSettings: React.FC = () => {
                                 </div>
                                 <ToggleSwitch
                                     checked={privacySettings.showActivity}
-                                    onChange={(checked) => setPrivacySettings(prev => ({ ...prev, showActivity: checked }))}
+                                    onChange={(checked) => handlePrivacyToggle('showActivity', checked)}
                                 />
                             </div>
 
@@ -1652,13 +1914,13 @@ const UserSettings: React.FC = () => {
                                 </div>
                                 <ToggleSwitch
                                     checked={privacySettings.showAchievements}
-                                    onChange={(checked) => setPrivacySettings(prev => ({ ...prev, showAchievements: checked }))}
+                                    onChange={(checked) => handlePrivacyToggle('showAchievements', checked)}
                                 />
                             </div>
 
                             <div className="flex justify-end pt-4">
-                                <Button onClick={handleSavePrivacy} disabled={isSaving}>
-                                    {isSaving ? (
+                                <Button onClick={handleSavePrivacy} disabled={isPrivacySaving}>
+                                    {isPrivacySaving ? (
                                         <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                                     ) : (
                                         <Save className="w-4 h-4 mr-2" />
@@ -1674,6 +1936,7 @@ const UserSettings: React.FC = () => {
 
     // Tab navigation items
     const tabs: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
+        { id: 'membership', label: 'Gói đăng ký', icon: <Crown className="w-4 h-4" /> },
         { id: 'profile', label: 'Hồ sơ', icon: <User className="w-4 h-4" /> },
         { id: 'security', label: 'Bảo mật', icon: <Lock className="w-4 h-4" /> },
         { id: 'notifications', label: 'Thông báo', icon: <Bell className="w-4 h-4" /> },
@@ -1736,3 +1999,9 @@ function getPasswordStrengthText(strength: number): string {
 }
 
 export default UserSettings;
+
+
+
+
+
+

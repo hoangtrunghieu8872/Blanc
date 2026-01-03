@@ -64,7 +64,7 @@ const MyTeamPosts: React.FC = () => {
   const navigate = useNavigate();
 
   // Check authentication
-  const isLoggedIn = !!localStorage.getItem('auth_token');
+  const isLoggedIn = !!localStorage.getItem('user');
 
   // State
   const [posts, setPosts] = useState<(TeamPost & { pendingRequests: number; isDeleted: boolean })[]>([]);

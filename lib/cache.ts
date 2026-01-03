@@ -1,6 +1,14 @@
 // ============ API CACHE SYSTEM ============
 // Cache data in memory với expiration time
 
+// Storage versioning (invalidate cache across deploys/builds)
+// Vite injects __APP_VERSION__ via vite.config.ts; fallback to env/mode for dev.
+declare const __APP_VERSION__: string | undefined;
+const STORAGE_VERSION =
+    (typeof __APP_VERSION__ !== 'undefined' && __APP_VERSION__) ||
+    (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.MODE) ||
+    'dev';
+
 interface CacheEntry<T> {
     data: T;
     timestamp: number;
@@ -84,10 +92,13 @@ export const CACHE_TTL = {
     STATS: 10 * 60 * 1000,      // 10 minutes - stats don't change often
     CONTESTS: 2 * 60 * 1000,    // 2 minutes - may have updates
     COURSES: 2 * 60 * 1000,     // 2 minutes
+    DOCUMENTS: 2 * 60 * 1000,   // 2 minutes
     COURSE_DETAIL: 5 * 60 * 1000, // 5 minutes - individual course
     USER_PROFILE: 1 * 60 * 1000,  // 1 minute - user data
     SEARCH: 30 * 1000,          // 30 seconds - search results
     ENROLLMENT: 1 * 60 * 1000,   // 1 minute
+    MEMBERSHIP_PLANS: 24 * 60 * 60 * 1000, // 24 hours - rarely changes
+    DRAFT: 7 * 24 * 60 * 60 * 1000, // 7 days
 };
 
 // ============ IMAGE CACHE SYSTEM ============
@@ -149,17 +160,46 @@ export const imageCache = new ImageCache();
 // ============ SESSION STORAGE HELPERS ============
 // For persisting cache across page reloads
 
+function buildStorageKey(namespace: string, key: string): string {
+    return `${namespace}_${STORAGE_VERSION}:${key}`;
+}
+
+function buildLegacyKey(namespace: string, key: string): string {
+    return `${namespace}_${key}`;
+}
+
+function clearStorageNamespace(storage: Storage, namespace: string): void {
+    const prefix = `${namespace}_`;
+    Object.keys(storage).forEach((k) => {
+        if (k.startsWith(prefix)) storage.removeItem(k);
+    });
+}
+
 export const sessionCache = {
     get<T>(key: string): T | null {
         try {
-            const item = sessionStorage.getItem(`cache_${key}`);
+            const versionedKey = buildStorageKey('cache', key);
+            const legacyKey = buildLegacyKey('cache', key);
+            const item = sessionStorage.getItem(versionedKey) || sessionStorage.getItem(legacyKey);
             if (!item) return null;
 
             const { data, expiresAt } = JSON.parse(item);
             if (Date.now() > expiresAt) {
-                sessionStorage.removeItem(`cache_${key}`);
+                sessionStorage.removeItem(versionedKey);
+                sessionStorage.removeItem(legacyKey);
                 return null;
             }
+
+            // Migrate legacy cache key to versioned format
+            if (!sessionStorage.getItem(versionedKey)) {
+                try {
+                    sessionStorage.setItem(versionedKey, item);
+                    sessionStorage.removeItem(legacyKey);
+                } catch {
+                    // Ignore storage failures
+                }
+            }
+
             return data;
         } catch {
             return null;
@@ -168,7 +208,7 @@ export const sessionCache = {
 
     set<T>(key: string, data: T, ttl: number): void {
         try {
-            sessionStorage.setItem(`cache_${key}`, JSON.stringify({
+            sessionStorage.setItem(buildStorageKey('cache', key), JSON.stringify({
                 data,
                 expiresAt: Date.now() + ttl,
             }));
@@ -178,11 +218,126 @@ export const sessionCache = {
     },
 
     remove(key: string): void {
-        sessionStorage.removeItem(`cache_${key}`);
+        sessionStorage.removeItem(buildStorageKey('cache', key));
+        sessionStorage.removeItem(buildLegacyKey('cache', key));
     },
 
     clear(): void {
-        const keys = Object.keys(sessionStorage).filter(k => k.startsWith('cache_'));
-        keys.forEach(k => sessionStorage.removeItem(k));
+        clearStorageNamespace(sessionStorage, 'cache');
     },
+};
+
+// ============ LOCAL STORAGE HELPERS ============
+// For persisting cache across browser restarts (use with care; localStorage is readable by JS)
+
+export const localCache = {
+    get<T>(key: string): T | null {
+        try {
+            const versionedKey = buildStorageKey('cache', key);
+            const legacyKey = buildLegacyKey('cache', key);
+            const item = localStorage.getItem(versionedKey) || localStorage.getItem(legacyKey);
+            if (!item) return null;
+
+            const { data, expiresAt } = JSON.parse(item);
+            if (Date.now() > expiresAt) {
+                localStorage.removeItem(versionedKey);
+                localStorage.removeItem(legacyKey);
+                return null;
+            }
+
+            // Migrate legacy cache key to versioned format
+            if (!localStorage.getItem(versionedKey)) {
+                try {
+                    localStorage.setItem(versionedKey, item);
+                    localStorage.removeItem(legacyKey);
+                } catch {
+                    // Ignore storage failures
+                }
+            }
+
+            return data;
+        } catch {
+            return null;
+        }
+    },
+
+    set<T>(key: string, data: T, ttl: number): void {
+        try {
+            localStorage.setItem(buildStorageKey('cache', key), JSON.stringify({
+                data,
+                expiresAt: Date.now() + ttl,
+            }));
+        } catch {
+            // Storage full or disabled
+        }
+    },
+
+    remove(key: string): void {
+        localStorage.removeItem(buildStorageKey('cache', key));
+        localStorage.removeItem(buildLegacyKey('cache', key));
+    },
+
+    clear(): void {
+        clearStorageNamespace(localStorage, 'cache');
+    },
+};
+
+// ============ DRAFT STORAGE (LOCAL) ============
+// Drafts are stored in localStorage with TTL and should be cleared on logout.
+
+export const localDrafts = {
+    get<T>(key: string): T | null {
+        try {
+            const versionedKey = buildStorageKey('draft', key);
+            const legacyKey = buildLegacyKey('draft', key);
+            const item = localStorage.getItem(versionedKey) || localStorage.getItem(legacyKey);
+            if (!item) return null;
+
+            const { data, expiresAt } = JSON.parse(item);
+            if (Date.now() > expiresAt) {
+                localStorage.removeItem(versionedKey);
+                localStorage.removeItem(legacyKey);
+                return null;
+            }
+
+            if (!localStorage.getItem(versionedKey)) {
+                try {
+                    localStorage.setItem(versionedKey, item);
+                    localStorage.removeItem(legacyKey);
+                } catch {
+                    // Ignore storage failures
+                }
+            }
+
+            return data;
+        } catch {
+            return null;
+        }
+    },
+
+    set<T>(key: string, data: T, ttl: number): void {
+        try {
+            localStorage.setItem(buildStorageKey('draft', key), JSON.stringify({
+                data,
+                expiresAt: Date.now() + ttl,
+            }));
+        } catch {
+            // Storage full or disabled
+        }
+    },
+
+    remove(key: string): void {
+        localStorage.removeItem(buildStorageKey('draft', key));
+        localStorage.removeItem(buildLegacyKey('draft', key));
+    },
+
+    clear(): void {
+        clearStorageNamespace(localStorage, 'draft');
+    },
+};
+
+export const clientStorage = {
+    version: STORAGE_VERSION,
+    buildKey: buildStorageKey,
+    clearNamespace: clearStorageNamespace,
 };

@@ -1,17 +1,23 @@
 import { api } from '../lib/api';
-import { Report, ReportTemplate, ReportsResponse } from '../types';
+import { Report, ReportActivity, ReportEvidence, ReportTemplate, ReportsResponse } from '../types';
 
 export interface CreateReportData {
     title: string;
     template: string;
     content?: string;
     status?: 'Draft' | 'Ready' | 'Sent';
+    relatedType?: 'contest' | 'course' | null;
+    relatedId?: string | null;
 }
 
 export interface UpdateReportData {
     title?: string;
     content?: string;
     status?: 'Draft' | 'Ready' | 'Sent';
+    activities?: ReportActivity[];
+    evidence?: ReportEvidence[];
+    relatedType?: 'contest' | 'course' | null;
+    relatedId?: string | null;
 }
 
 export interface GetReportsParams {
@@ -20,6 +26,17 @@ export interface GetReportsParams {
     search?: string;
     limit?: number;
     skip?: number;
+}
+
+export interface ReportFeedbackItem {
+    id: string;
+    reportId: string;
+    authorId: string;
+    authorRole: string;
+    authorName?: string | null;
+    authorAvatar?: string | null;
+    message: string;
+    createdAt?: string | null;
 }
 
 export const reportService = {
@@ -80,6 +97,27 @@ export const reportService = {
      */
     updateStatus: async (id: string, status: 'Draft' | 'Ready' | 'Sent'): Promise<{ success: boolean; status: string }> => {
         return api.patch<{ success: boolean; status: string }>(`/reports/${id}/status`, { status });
+    },
+
+    /**
+     * Submit report for mentor/admin review
+     */
+    submitForReview: async (id: string): Promise<Report> => {
+        return api.post<Report>(`/reports/${id}/submit`, {});
+    },
+
+    /**
+     * Get feedback thread for a report (owner only)
+     */
+    getFeedback: async (id: string): Promise<{ feedback: ReportFeedbackItem[] }> => {
+        return api.get<{ feedback: ReportFeedbackItem[] }>(`/reports/${id}/feedback`);
+    },
+
+    /**
+     * Reply/add feedback message (owner only)
+     */
+    addFeedback: async (id: string, message: string): Promise<{ feedback: ReportFeedbackItem }> => {
+        return api.post<{ feedback: ReportFeedbackItem }>(`/reports/${id}/feedback`, { message });
     },
 
     /**

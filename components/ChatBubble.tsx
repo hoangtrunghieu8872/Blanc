@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { MessageCircle, X, Send, Sparkles, User, Bot, ChevronDown, Loader2, AlertCircle, Trash2, Users, Trophy, ExternalLink, MapPin, Clock } from 'lucide-react';
+import { api } from '../lib/api';
 
 // ============ TYPES ============
 interface TeamPost {
@@ -59,7 +60,6 @@ interface ChatResponse {
 }
 
 // ============ CONSTANTS ============
-const API_BASE = 'http://localhost:4000';
 
 const DEFAULT_SUGGESTIONS: Suggestion[] = [
     { id: 'find_contest', text: 'Cuộc thi nào phù hợp với tôi?', icon: '🏆' },
@@ -449,8 +449,8 @@ export const ChatBubble: React.FC = () => {
         setIsLoading(true);
 
         try {
-            const token = localStorage.getItem('auth_token');
-            if (!token) {
+            const userStr = localStorage.getItem('user');
+            if (!userStr) {
                 throw new Error('Vui lòng đăng nhập để sử dụng chat');
             }
 
@@ -460,24 +460,10 @@ export const ChatBubble: React.FC = () => {
                 content: m.content
             }));
 
-            const response = await fetch(`${API_BASE}/api/chat`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`
-                },
-                body: JSON.stringify({
-                    message: sanitizedContent,
-                    history
-                })
+            const data = await api.post<ChatResponse>('/chat', {
+                message: sanitizedContent,
+                history
             });
-
-            if (!response.ok) {
-                const errorData = await response.json().catch(() => ({}));
-                throw new Error(errorData.error || 'Không thể kết nối với AI');
-            }
-
-            const data: ChatResponse = await response.json();
 
             // Add assistant message with data for rich cards
             const assistantMessage: Message = {

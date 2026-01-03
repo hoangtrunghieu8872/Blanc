@@ -286,6 +286,9 @@ router.get('/', async (req, res, next) => {
             query.status = status;
         }
 
+        // Always hide soft-deleted posts from the public listing.
+        query.deletedAt = { $exists: false };
+
         // Role filter
         if (role && ROLES_ALLOWED.includes(role)) {
             query.rolesNeeded = role;
@@ -391,6 +394,16 @@ router.patch('/:id/status', authGuard, async (req, res, next) => {
 
         const teamPosts = getCollection('team_posts');
         const post = await teamPosts.findOne({ _id: new ObjectId(id) });
+
+        // Hide soft-deleted or expired posts from the public detail endpoint.
+        if (post && (post.deletedAt || (post.expiresAt && new Date(post.expiresAt).getTime() <= Date.now()))) {
+            return res.status(404).json({ error: 'Not Found' });
+        }
+
+        // Hide soft-deleted posts from the public endpoint.
+        if (post && post.deletedAt) {
+            return res.status(404).json({ error: 'Not Found' });
+        }
 
         if (!post) {
             return res.status(404).json({ error: 'Không tìm thấy bài đăng' });
@@ -1009,7 +1022,8 @@ router.delete('/:id', authGuard, async (req, res, next) => {
         }
 
         // Check ownership or admin
-        if (post.createdBy.id.toString() !== userId && userRole !== 'admin') {
+        const isPrivileged = userRole === 'admin' || userRole === 'super_admin';
+        if (post.createdBy.id.toString() !== userId && !isPrivileged) {
             return res.status(403).json({ error: 'Bạn không có quyền xóa bài đăng này' });
         }
 
@@ -1022,7 +1036,7 @@ router.delete('/:id', authGuard, async (req, res, next) => {
             userId: new ObjectId(userId),
             resourceType: 'team_post',
             resourceId: new ObjectId(id),
-            details: { title: post.title, deletedBy: userRole === 'admin' ? 'admin' : 'owner' },
+            details: { title: post.title, deletedBy: isPrivileged ? userRole : 'owner' },
             createdAt: new Date()
         });
 

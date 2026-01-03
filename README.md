@@ -15,9 +15,11 @@ View your app in AI Studio: https://ai.studio/apps/drive/1GlTghfKTWF6q0HKfLY-gJh
 
 1. Install dependencies:
    `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+2. (Optional) Set `GEMINI_API_KEY` in `.env` for Gemini (admin AI) features
+3. Run the user app:
+   `npm run dev` (http://localhost:3000)
+4. Run the admin app:
+   `npm run admin:dev` (http://localhost:3001)
 
 ## API server (MongoDB + media upload)
 
@@ -25,12 +27,17 @@ View your app in AI Studio: https://ai.studio/apps/drive/1GlTghfKTWF6q0HKfLY-gJh
    - `MONGODB_URI` to your MongoDB connection string
    - `JWT_SECRET` to a long random string
    - `OTP_SECRET_KEY` - secret key for HMAC signature verification
+   - Payments (SePay):
+     - `PAYMENTS_ENABLED=true` (or `FEATURE_PAYMENTS_ENABLED=true`) to enable membership checkout
+     - `PAYMENT_BANK_CODE`, `PAYMENT_ACCOUNT_NUMBER`, `PAYMENT_ACCOUNT_NAME` to generate VietQR
+     - `SEPAY_API_KEY` to protect `POST /api/payments/sepay/webhook`
+     - Optional: `PAYMENT_AMOUNT_TOLERANCE_VND` to allow small amount mismatches
    - `OTP_EMAIL_URL` - deployed App Script URL for OTP emails (see `scripts/otpService.gs`)
    - `MEDIA_UPLOAD_URL` - deployed App Script URL for media uploads (see `scripts/mediaUpload.gs`)
    - `NOTIFICATION_EMAIL_URL` - deployed App Script URL for notification emails (see `scripts/notificationService.gs`)
    - `OPENROUTER_API_KEY` - API key from [OpenRouter](https://openrouter.ai) for AI Chat
-   - `CHAT_MODEL` - (optional) AI model to use, defaults to `google/gemini-2.0-flash-001`
-   - Optional: `FRONTEND_ORIGIN` if you need to allow additional origins (comma separated)
+   - `CHAT_MODELS` - (optional) comma-separated model priority list (fallback order), defaults to `qwen/qwen3-coder,qwen/qwen3-235b-a22b,tngtech/deepseek-r1t2-chimera,mistralai/devstral-2512,meta-llama/llama-3.3-70b-instruct`
+   - `FRONTEND_ORIGIN` - allowed web origins (comma separated); local dev: `http://localhost:3000,http://localhost:3001`
    
 2. **Deploy Google Apps Scripts:**
 
@@ -57,15 +64,23 @@ View your app in AI Studio: https://ai.studio/apps/drive/1GlTghfKTWF6q0HKfLY-gJh
    - Copy deployment URL to `NOTIFICATION_EMAIL_URL`
 
 3. Start the API:
+   (Recommended once per DB) Create MongoDB indexes: `npm run db:indexes`
    `npm run server`
 
+## SePay webhook setup
+
+- Webhook URL: `https://<your-api-host>/api/payments/sepay/webhook`
+- Auth header: `Authorization: ApiKey <SEPAY_API_KEY>` (or `x-api-key: <SEPAY_API_KEY>`)
+
 4. Key endpoints:
-   - **Auth:** `POST /api/auth/register`, `POST /api/auth/login`, `GET /api/auth/me`
-   - **OTP:** `POST /api/otp/send`, `POST /api/otp/verify`
+   - **Auth:** `POST /api/auth/register/initiate`, `POST /api/auth/register/verify`, `POST /api/auth/register/complete`, `POST /api/auth/login/initiate`, `POST /api/auth/login/verify-2fa`, `GET /api/auth/me`, `POST /api/auth/logout`
+   - **OTP:** `POST /api/otp/request`, `POST /api/otp/verify`, `POST /api/otp/resend`
    - **Contests:** `GET /api/contests`, `GET /api/contests/:id`, `POST/PATCH /api/contests` (admin)
    - **Courses:** `GET /api/courses`, `POST /api/courses/:id/lessons`, `POST /api/courses/:id/materials`
    - **Notifications:** `POST /api/notifications/contest-reminder`, `POST /api/notifications/course-update`, `POST /api/notifications/announcement`
   - **Media:** `POST /api/media/presign` -> returns `uploadUrl`, `fileName`, `folder`, `mimeType`, `nonce`, `timestamp`, `signature` (required by `scripts/mediaUpload.gs`)
+   - **Membership:** `GET /api/membership/plans`, `POST /api/membership/checkout`, `GET /api/membership/orders/:id`, `GET /api/membership/me`
+   - **Payments (SePay webhook):** `POST /api/payments/sepay/webhook`
    - **User Settings:** `GET /api/users/me/settings`, `PATCH /api/users/me/profile`, `PATCH /api/users/me/notifications`
    - **AI Chat:** `POST /api/chat` (RAG-powered assistant), `GET /api/chat/suggestions`
    - **Matching:** `GET /api/matching/recommendations`, `GET /api/matching/score/:userId`, `POST /api/matching/refresh`
@@ -127,7 +142,7 @@ The platform includes an AI-powered chat assistant that helps users:
 ### Setup:
 1. Get an API key from [OpenRouter](https://openrouter.ai)
 2. Add `OPENROUTER_API_KEY` to your `.env` file
-3. (Optional) Change `CHAT_MODEL` to your preferred model
+3. (Optional) Set `CHAT_MODELS` to override the fallback order
 
 ## Notification System
 

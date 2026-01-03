@@ -1,21 +1,22 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Calendar as CalendarIcon, Trophy, BookOpen, Clock, Settings, LogOut, ChevronRight, Loader2, Play, CheckCircle2, BarChart3, Trash2 } from 'lucide-react';
+import { Calendar as CalendarIcon, Trophy, BookOpen, Clock, Settings, LogOut, ChevronRight, Loader2, Play, CheckCircle2, Trash2 } from 'lucide-react';
 import { Button, Card, Badge, Input, Tabs } from '../components/ui/Common';
 import ScheduleCalendar from '../components/ScheduleCalendar';
 import WorkloadWarningCard from '../components/WorkloadWarningCard';
 import UserSettings from '../components/UserSettings';
-import { ScheduleEvent, User, CourseEnrollment } from '../types';
+import { ScheduleEvent, User, CourseEnrollment, MentorBlog } from '../types';
 import { useUserRegistrations, useWorkloadAnalysis, useEnrolledCourses, useStreak } from '../lib/hooks';
+import { api } from '../lib/api';
+import { mentorApi } from '../lib/mentorApi';
 
-type TabType = 'overview' | 'schedule' | 'courses' | 'settings';
+type TabType = 'overview' | 'schedule' | 'courses' | 'settings' | 'mentor-blog';
 
 // Helper to get user from localStorage
 function getStoredUser(): User | null {
    try {
-      const token = localStorage.getItem('auth_token');
       const userStr = localStorage.getItem('user');
-      if (token && userStr) {
+      if (userStr) {
          return JSON.parse(userStr);
       }
    } catch {
@@ -28,13 +29,20 @@ const Profile: React.FC = () => {
    const navigate = useNavigate();
    const [searchParams] = useSearchParams();
    const tabFromUrl = searchParams.get('tab') as TabType | null;
-   const [activeTab, setActiveTab] = useState<TabType>(tabFromUrl && ['overview', 'schedule', 'courses', 'settings'].includes(tabFromUrl) ? tabFromUrl : 'overview');
+   const [activeTab, setActiveTab] = useState<TabType>(tabFromUrl && ['overview', 'schedule', 'courses', 'settings', 'mentor-blog'].includes(tabFromUrl) ? tabFromUrl : 'overview');
    const [currentUser, setCurrentUser] = useState<User | null>(() => getStoredUser());
    const [isInitialized, setIsInitialized] = useState(false);
+   const [mentorBlog, setMentorBlog] = useState<MentorBlog>({ bannerUrl: '', body: '' });
+   const [isBlogLoading, setIsBlogLoading] = useState(false);
+   const [isBlogSaving, setIsBlogSaving] = useState(false);
+   const [isBlogUploading, setIsBlogUploading] = useState(false);
+   const [blogError, setBlogError] = useState<string | null>(null);
+   const bannerInputRef = useRef<HTMLInputElement>(null);
+   const isMentor = currentUser?.role === 'mentor';
 
    // Update tab when URL changes
    useEffect(() => {
-      if (tabFromUrl && ['overview', 'schedule', 'courses', 'settings'].includes(tabFromUrl)) {
+      if (tabFromUrl && ['overview', 'schedule', 'courses', 'settings', 'mentor-blog'].includes(tabFromUrl)) {
          setActiveTab(tabFromUrl);
       }
    }, [tabFromUrl]);
@@ -71,7 +79,6 @@ const Profile: React.FC = () => {
       isLoading: coursesLoading,
       activeCount,
       completedCount,
-      avgProgress,
       unenrollCourse,
       refetch: refetchCourses,
       error: coursesError
@@ -106,6 +113,38 @@ const Profile: React.FC = () => {
       return () => window.clearTimeout(timer);
    }, [streakMessage]);
 
+   useEffect(() => {
+      if (!isMentor || !currentUser?.id) return;
+      let isActive = true;
+
+      const fetchMentorBlog = async () => {
+         setIsBlogLoading(true);
+         setBlogError(null);
+         try {
+            const data = await mentorApi.getMyBlog();
+            if (!isActive) return;
+            setMentorBlog({
+               bannerUrl: data.blog?.bannerUrl || '',
+               body: data.blog?.body || '',
+               createdAt: data.blog?.createdAt || null,
+               updatedAt: data.blog?.updatedAt || null,
+            });
+            syncMentorBlogCompletion(data.mentorBlogCompleted);
+         } catch (err) {
+            if (!isActive) return;
+            setBlogError(err instanceof Error ? err.message : 'Khong the tai blog');
+         } finally {
+            if (isActive) setIsBlogLoading(false);
+         }
+      };
+
+      fetchMentorBlog();
+
+      return () => {
+         isActive = false;
+      };
+   }, [currentUser?.id, isMentor]);
+
    // Show loading while initializing or if no user
    if (!isInitialized || !currentUser) {
       return (
@@ -131,6 +170,21 @@ const Profile: React.FC = () => {
       }
    };
 
+   const syncMentorBlogCompletion = (completed?: boolean) => {
+      if (typeof completed !== 'boolean') return;
+      try {
+         const userStr = localStorage.getItem('user');
+         if (!userStr) return;
+         const user = JSON.parse(userStr);
+         if (user.mentorBlogCompleted === completed) return;
+         user.mentorBlogCompleted = completed;
+         localStorage.setItem('user', JSON.stringify(user));
+         window.dispatchEvent(new Event('auth-change'));
+      } catch {
+         // ignore
+      }
+   };
+
    // Handle unenroll with confirmation
    const handleUnenroll = async (enrollmentId: string, courseTitle: string) => {
       if (window.confirm(`Bạn có chắc muốn hủy đăng ký khóa học "${courseTitle}"?`)) {
@@ -153,6 +207,97 @@ const Profile: React.FC = () => {
    };
 
    // star removed
+
+   const handleMentorBannerUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      if (!file) return;
+
+      const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+      if (!allowedTypes.includes(file.type)) {
+         setBlogError('Chi chap nhan file anh (JPEG, PNG, GIF, WebP)');
+         return;
+      }
+
+      if (file.size > 5 * 1024 * 1024) {
+         setBlogError('Kich thuoc file vuot qua 5MB');
+         return;
+      }
+
+      setIsBlogUploading(true);
+      setBlogError(null);
+
+      try {
+         const presignData = await api.post<{
+            uploadUrl: string;
+            fileName: string;
+            folder: string;
+            mimeType: string;
+            nonce: string;
+            timestamp: number;
+            signature: string;
+         }>('/media/presign', {
+            mimeType: file.type,
+            folder: 'mentor-blog'
+         });
+
+         const formData = new FormData();
+         formData.append('file', file);
+         formData.append('fileName', presignData.fileName);
+         formData.append('folder', presignData.folder);
+         formData.append('mimeType', presignData.mimeType);
+         formData.append('nonce', presignData.nonce);
+         formData.append('timestamp', String(presignData.timestamp));
+         formData.append('signature', presignData.signature);
+
+         const uploadResponse = await fetch(presignData.uploadUrl, {
+            method: 'POST',
+            body: formData,
+         });
+
+         const uploadResult = await uploadResponse.json();
+
+         if (uploadResult.status !== 200 || !uploadResult.result) {
+            throw new Error(uploadResult.result?.error || 'Upload failed');
+         }
+
+         const driveFileId = uploadResult.result.id;
+         const directImageUrl = `https://lh3.googleusercontent.com/d/${driveFileId}`;
+
+         setMentorBlog(prev => ({ ...prev, bannerUrl: directImageUrl }));
+      } catch (err) {
+         setBlogError(err instanceof Error ? err.message : 'Khong the tai len banner');
+      } finally {
+         setIsBlogUploading(false);
+         if (bannerInputRef.current) {
+            bannerInputRef.current.value = '';
+         }
+      }
+   };
+
+   const handleSaveMentorBlog = async (event: React.FormEvent) => {
+      event.preventDefault();
+      setIsBlogSaving(true);
+      setBlogError(null);
+
+      try {
+         const data = await mentorApi.updateMyBlog({
+            bannerUrl: mentorBlog.bannerUrl,
+            body: mentorBlog.body,
+         });
+
+         setMentorBlog({
+            bannerUrl: data.blog?.bannerUrl || '',
+            body: data.blog?.body || '',
+            createdAt: data.blog?.createdAt || null,
+            updatedAt: data.blog?.updatedAt || null,
+         });
+         syncMentorBlogCompletion(data.mentorBlogCompleted);
+      } catch (err) {
+         setBlogError(err instanceof Error ? err.message : 'Khong the cap nhat blog');
+      } finally {
+         setIsBlogSaving(false);
+      }
+   };
 
    // Tab content renderer
    const renderTabContent = () => {
@@ -219,7 +364,7 @@ const Profile: React.FC = () => {
             return (
                <div className="space-y-6">
                   {/* Course Stats */}
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                      <Card className="p-4 flex items-center space-x-4">
                         <div className="p-3 bg-primary-100 text-primary-600 rounded-lg">
                            <Play className="w-6 h-6" />
@@ -236,15 +381,6 @@ const Profile: React.FC = () => {
                         <div>
                            <div className="text-2xl font-bold text-slate-900">{completedCount}</div>
                            <div className="text-xs text-slate-500">Đã hoàn thành</div>
-                        </div>
-                     </Card>
-                     <Card className="p-4 flex items-center space-x-4">
-                        <div className="p-3 bg-amber-100 text-amber-600 rounded-lg">
-                           <BarChart3 className="w-6 h-6" />
-                        </div>
-                        <div>
-                           <div className="text-2xl font-bold text-slate-900">{avgProgress}%</div>
-                           <div className="text-xs text-slate-500">Tiến độ trung bình</div>
                         </div>
                      </Card>
                   </div>
@@ -361,6 +497,117 @@ const Profile: React.FC = () => {
                               Khám phá khóa học
                            </Button>
                         </div>
+                     )}
+                  </Card>
+               </div>
+            );
+
+         case 'mentor-blog':
+            if (!isMentor) {
+               return (
+                  <Card className="p-6">
+                     <p className="text-sm text-slate-500">Ban khong co quyen truy cap muc nay.</p>
+                  </Card>
+               );
+            }
+
+            return (
+               <div className="space-y-6">
+                  <Card className="p-6">
+                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                        <div>
+                           <h3 className="text-lg font-bold text-slate-900">Blog ca nhan</h3>
+                           <p className="text-sm text-slate-500 mt-1">Cap nhat banner va noi dung gioi thieu.</p>
+                        </div>
+                     </div>
+
+                     {blogError && (
+                        <div className="mt-4 text-sm text-red-600">{blogError}</div>
+                     )}
+
+                     {isBlogLoading ? (
+                        <div className="flex items-center justify-center py-10 text-slate-500">
+                           <Loader2 className="w-5 h-5 animate-spin mr-2" />
+                           Dang tai blog...
+                        </div>
+                     ) : (
+                        <form onSubmit={handleSaveMentorBlog} className="mt-6 space-y-5">
+                           <div>
+                              <label className="block text-sm font-medium text-slate-700">Banner</label>
+                              <div className="mt-2 rounded-xl border border-slate-200 overflow-hidden bg-slate-50">
+                                 {mentorBlog.bannerUrl ? (
+                                    <img
+                                       src={mentorBlog.bannerUrl}
+                                       alt="Banner"
+                                       className="w-full h-40 object-cover"
+                                    />
+                                 ) : (
+                                    <div className="h-40 flex items-center justify-center text-xs text-slate-400">
+                                       Chua co banner
+                                    </div>
+                                 )}
+                              </div>
+                              <div className="mt-3 flex flex-wrap items-center gap-2">
+                                 <input
+                                    ref={bannerInputRef}
+                                    type="file"
+                                    accept="image/*"
+                                    className="hidden"
+                                    onChange={handleMentorBannerUpload}
+                                 />
+                                 <Button
+                                    type="button"
+                                    variant="secondary"
+                                    size="sm"
+                                    onClick={() => bannerInputRef.current?.click()}
+                                    disabled={isBlogUploading}
+                                 >
+                                    {isBlogUploading ? (
+                                       <>
+                                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                          Dang tai...
+                                       </>
+                                    ) : (
+                                       'Tai banner'
+                                    )}
+                                 </Button>
+                                 {mentorBlog.bannerUrl && (
+                                    <Button
+                                       type="button"
+                                       variant="ghost"
+                                       size="sm"
+                                       onClick={() => setMentorBlog(prev => ({ ...prev, bannerUrl: '' }))}
+                                    >
+                                       Xoa banner
+                                    </Button>
+                                 )}
+                              </div>
+                           </div>
+
+                           <div>
+                              <label className="block text-sm font-medium text-slate-700">Noi dung blog</label>
+                              <textarea
+                                 value={mentorBlog.body}
+                                 onChange={(e) => setMentorBlog(prev => ({ ...prev, body: e.target.value }))}
+                                 rows={8}
+                                 className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                                 placeholder="Gioi thieu ve ban than..."
+                              />
+                           </div>
+
+                           <div className="flex justify-end">
+                              <Button type="submit" disabled={isBlogSaving}>
+                                 {isBlogSaving ? (
+                                    <>
+                                       <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                       Dang luu...
+                                    </>
+                                 ) : (
+                                    'Luu cap nhat'
+                                 )}
+                              </Button>
+                           </div>
+                        </form>
                      )}
                   </Card>
                </div>
@@ -554,7 +801,30 @@ const Profile: React.FC = () => {
                   <h2 className="text-xl font-bold text-slate-900">{currentUser?.name || 'Người dùng'}</h2>
                   <p className="text-sm text-slate-500 mb-4">Học viên tích cực</p>
                   <div className="flex justify-center gap-2 mb-6">
-                     <Badge className="bg-yellow-50 text-yellow-700 border-yellow-100">Gold Member</Badge>
+                     {(() => {
+                        const tier = currentUser?.membership?.effectiveTier || currentUser?.membership?.tier || 'free';
+                        const tierLabel = tier === 'plus' ? 'Plus' : tier === 'pro' ? 'Pro' : tier === 'business' ? 'Business' : 'Free';
+                        const tierClass =
+                           tier === 'business'
+                              ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
+                              : tier === 'pro'
+                                 ? 'bg-purple-50 text-purple-700 border-purple-100'
+                                 : tier === 'plus'
+                                    ? 'bg-yellow-50 text-yellow-700 border-yellow-100'
+                                    : 'bg-slate-100 text-slate-700 border-slate-200';
+
+                        return (
+                           <div className="flex flex-col items-center gap-2">
+                              <Badge className={tierClass}>{tierLabel}</Badge>
+                              <button
+                                 onClick={() => navigate('/profile?tab=settings&settingsTab=membership')}
+                                 className="text-xs font-medium text-primary-600 hover:text-primary-700 hover:underline"
+                              >
+                                 Quản lý gói đăng ký
+                              </button>
+                           </div>
+                        );
+                     })()}
                   </div>
                   <div className="grid grid-cols-2 gap-4 border-t border-slate-100 pt-4 text-center">
                      <div>
@@ -604,6 +874,18 @@ const Profile: React.FC = () => {
                         Khóa học của tôi
                      </button>
 
+                     {isMentor && (
+                        <button
+                           onClick={() => setActiveTab('mentor-blog')}
+                           className={`px-4 py-3 text-sm text-left border-l-4 transition-colors ${activeTab === 'mentor-blog'
+                              ? 'text-primary-600 bg-primary-50 border-primary-600 font-medium'
+                              : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900 border-transparent'
+                              }`}
+                        >
+                           Blog ca nhan
+                        </button>
+                     )}
+
                      <button
                         onClick={() => setActiveTab('settings')}
                         className={`px-4 py-3 text-sm text-left border-l-4 transition-colors ${activeTab === 'settings'
@@ -619,6 +901,16 @@ const Profile: React.FC = () => {
 
             {/* Main Content */}
             <div className="lg:col-span-3 space-y-6">
+               {isMentor && !currentUser?.mentorBlogCompleted && (
+                  <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                     <span className="text-sm text-amber-800">
+                        Ban chua cap nhat blog ca nhan. Hay hoan thanh de ho so day du hon.
+                     </span>
+                     <Button size="sm" onClick={() => navigate('/profile?tab=mentor-blog')}>
+                        Cap nhat thong tin
+                     </Button>
+                  </div>
+               )}
                {renderTabContent()}
             </div>
          </div>

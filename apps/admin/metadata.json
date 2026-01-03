@@ -1,0 +1,5 @@
+{
+  "name": "Blanc Admin",
+  "description": "Admin dashboard for Blanc platform managing students, contests, and courses.",
+  "requestFramePermissions": []
+}

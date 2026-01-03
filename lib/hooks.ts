@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { api, CACHE_TTL } from './api';
-import { Contest, Course, ScheduleEvent, WorkloadAnalysis, UserRegistration } from '../types';
+import { Contest, Course, Document, ScheduleEvent, WorkloadAnalysis, UserRegistration } from '../types';
 import { StreakData, checkin, getStreak, clearStreakCache, refreshStreak } from '../services/streakService';
+import { getVietnamDate, VIETNAM_OFFSET_MS } from '../services/streakTime';
 
 // ============ DEBOUNCE UTILITY ============
 function useDebounce<T>(value: T, delay: number): T {
@@ -183,18 +184,48 @@ export function useContests(options: UseContestsOptions = {}) {
 // ============ COURSES HOOK ============
 interface CoursesResponse {
   courses: Course[];
+  total?: number;
+  page?: number;
+  limit?: number;
+  totalPages?: number;
 }
 
 interface UseCoursesOptions {
   limit?: number;
+  page?: number;
   level?: 'Beginner' | 'Intermediate' | 'Advanced';
+  search?: string;
+  instructor?: string;
+  minPrice?: number;
+  maxPrice?: number;
+  isPublic?: boolean;
+  sortBy?: string;
+  sortOrder?: 'asc' | 'desc';
   autoFetch?: boolean;
 }
 
 export function useCourses(options: UseCoursesOptions = {}) {
-  const { limit = 10, level, autoFetch = true } = options;
+  const {
+    limit = 10,
+    page = 1,
+    level,
+    search,
+    instructor,
+    minPrice,
+    maxPrice,
+    isPublic,
+    sortBy,
+    sortOrder,
+    autoFetch = true,
+  } = options;
 
   const [courses, setCourses] = useState<Course[]>([]);
+  const [meta, setMeta] = useState<{ total: number; page: number; limit: number; totalPages: number }>({
+    total: 0,
+    page,
+    limit,
+    totalPages: 0,
+  });
   const [isLoading, setIsLoading] = useState(autoFetch);
   const [error, setError] = useState<string | null>(null);
 
@@ -203,8 +234,15 @@ export function useCourses(options: UseCoursesOptions = {}) {
     setError(null);
 
     try {
-      const params = new URLSearchParams({ limit: limit.toString() });
+      const params = new URLSearchParams({ limit: limit.toString(), page: page.toString() });
       if (level) params.append('level', level);
+      if (search) params.append('search', search);
+      if (instructor) params.append('instructor', instructor);
+      if (minPrice !== undefined) params.append('minPrice', String(minPrice));
+      if (maxPrice !== undefined) params.append('maxPrice', String(maxPrice));
+      if (isPublic !== undefined) params.append('isPublic', String(isPublic));
+      if (sortBy) params.append('sortBy', sortBy);
+      if (sortOrder) params.append('sortOrder', sortOrder);
 
       // Use cached API call
       const data = await api.get<CoursesResponse>(`/courses?${params}`, {
@@ -212,12 +250,18 @@ export function useCourses(options: UseCoursesOptions = {}) {
         cacheTTL: CACHE_TTL.COURSES
       });
       setCourses(data.courses);
+      setMeta({
+        total: data.total ?? 0,
+        page: data.page ?? page,
+        limit: data.limit ?? limit,
+        totalPages: data.totalPages ?? 0,
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load courses');
     } finally {
       setIsLoading(false);
     }
-  }, [limit, level]);
+  }, [instructor, isPublic, level, limit, maxPrice, minPrice, page, search, sortBy, sortOrder]);
 
   useEffect(() => {
     if (autoFetch) {
@@ -225,7 +269,98 @@ export function useCourses(options: UseCoursesOptions = {}) {
     }
   }, [autoFetch, fetchCourses]);
 
-  return { courses, isLoading, error, refetch: fetchCourses };
+  return { courses, meta, isLoading, error, refetch: fetchCourses };
+}
+
+// ============ DOCUMENTS HOOK ============
+interface DocumentsResponse {
+  documents: Document[];
+  total?: number;
+  page?: number;
+  limit?: number;
+  totalPages?: number;
+}
+
+interface UseDocumentsOptions {
+  limit?: number;
+  page?: number;
+  category?: string;
+  field?: string;
+  search?: string;
+  author?: string;
+  isPublic?: boolean;
+  sortBy?: string;
+  sortOrder?: 'asc' | 'desc';
+  autoFetch?: boolean;
+}
+
+export function useDocuments(options: UseDocumentsOptions = {}) {
+  const {
+    limit = 20,
+    page = 1,
+    category,
+    field,
+    search,
+    author,
+    isPublic,
+    sortBy,
+    sortOrder,
+    autoFetch = true,
+  } = options;
+
+  const [documents, setDocuments] = useState<Document[]>([]);
+  const [meta, setMeta] = useState<{ total: number; page: number; limit: number; totalPages: number }>({
+    total: 0,
+    page,
+    limit,
+    totalPages: 0,
+  });
+  const [isLoading, setIsLoading] = useState(autoFetch);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchDocuments = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const params = new URLSearchParams({
+        limit: limit.toString(),
+        page: page.toString(),
+      });
+      if (category) params.append('category', category);
+      if (field) params.append('field', field);
+      if (search) params.append('search', search);
+      if (author) params.append('author', author);
+      if (isPublic !== undefined) params.append('isPublic', String(isPublic));
+      if (sortBy) params.append('sortBy', sortBy);
+      if (sortOrder) params.append('sortOrder', sortOrder);
+
+      const data = await api.get<DocumentsResponse>(`/documents?${params}`, {
+        useCache: true,
+        cacheTTL: CACHE_TTL.DOCUMENTS,
+      });
+
+      setDocuments(data.documents || []);
+      setMeta({
+        total: data.total ?? 0,
+        page: data.page ?? page,
+        limit: data.limit ?? limit,
+        totalPages: data.totalPages ?? 0,
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load documents');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [author, category, field, isPublic, limit, page, search, sortBy, sortOrder]);
+
+  useEffect(() => {
+    if (autoFetch) {
+      fetchDocuments();
+    }
+  }, [autoFetch, fetchDocuments]);
+
+  return { documents, meta, isLoading, error, refetch: fetchDocuments };
 }
 
 // ============ USER SCHEDULE HOOK ============
@@ -406,7 +541,22 @@ export function useStreak(options: UseStreakOptions = {}) {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
-  const checkedInRef = useRef(false);
+  const lastAutoCheckinKeyRef = useRef<string | null>(null);
+  const midnightTimerRef = useRef<number | null>(null);
+
+  const buildStreakKey = useCallback((base: string, keyUserId?: string) => {
+    return keyUserId ? `${base}_${keyUserId}` : base;
+  }, []);
+
+  const msUntilNextVietnamMidnight = useCallback(() => {
+    const oneDayMs = 24 * 60 * 60 * 1000;
+    const nowMs = Date.now();
+    const vnNowMs = nowMs + VIETNAM_OFFSET_MS;
+    const vnDate = new Date(vnNowMs);
+    vnDate.setUTCHours(0, 0, 0, 0);
+    const nextVnMidnightMs = vnDate.getTime() + oneDayMs;
+    return Math.max(0, nextVnMidnightMs - vnNowMs);
+  }, []);
 
   // Fetch streak data (uses localStorage cache - 24h TTL)
   const fetchStreak = useCallback(async () => {
@@ -459,18 +609,93 @@ export function useStreak(options: UseStreakOptions = {}) {
     }
   }, [userId]);
 
-  // Auto check-in on mount
-  useEffect(() => {
-    if (autoCheckin && !checkedInRef.current) {
-      checkedInRef.current = true;
-      doCheckin().catch(() => {
-        // If check-in fails, try to get existing streak data
-        fetchStreak();
-      });
-    } else if (!autoCheckin) {
+  const maybeAutoCheckin = useCallback(async () => {
+    if (!autoCheckin) return;
+
+    const today = getVietnamDate();
+    const autoKey = `${userId ?? 'anon'}:${today}`;
+    if (lastAutoCheckinKeyRef.current === autoKey) return;
+
+    // If we already checked in today (in localStorage), don't spam check-in calls on focus.
+    // Still fetch once if we don't have data yet so the badge is populated.
+    try {
+      const lastCheckin = localStorage.getItem(buildStreakKey('streak_last_checkin', userId));
+      if (lastCheckin === today) {
+        lastAutoCheckinKeyRef.current = autoKey;
+        if (!streak) {
+          fetchStreak();
+        }
+        return;
+      }
+    } catch {
+      // ignore storage errors and fall back to API
+    }
+
+    lastAutoCheckinKeyRef.current = autoKey;
+    try {
+      await doCheckin();
+    } catch {
+      lastAutoCheckinKeyRef.current = null;
       fetchStreak();
     }
-  }, [autoCheckin, doCheckin, fetchStreak]);
+  }, [autoCheckin, buildStreakKey, doCheckin, fetchStreak, streak, userId]);
+
+  // Auto check-in on mount (autoCheckin = true)
+  useEffect(() => {
+    if (!autoCheckin) return;
+    maybeAutoCheckin();
+  }, [autoCheckin, maybeAutoCheckin]);
+
+  // Load streak once when autoCheckin is disabled
+  useEffect(() => {
+    if (autoCheckin) return;
+    fetchStreak();
+  }, [autoCheckin, fetchStreak]);
+
+  // Keep streak accurate when the app stays open across days
+  useEffect(() => {
+    if (!autoCheckin) return;
+
+    const onFocus = () => {
+      maybeAutoCheckin();
+    };
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        maybeAutoCheckin();
+      }
+    };
+
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisibilityChange);
+
+    const scheduleMidnight = () => {
+      if (midnightTimerRef.current) {
+        window.clearTimeout(midnightTimerRef.current);
+        midnightTimerRef.current = null;
+      }
+
+      // Run a check shortly after Vietnam midnight to refresh/check-in for the new day
+      const delayMs = msUntilNextVietnamMidnight() + 1000;
+      midnightTimerRef.current = window.setTimeout(() => {
+        if (document.visibilityState === 'visible') {
+          maybeAutoCheckin();
+        }
+        scheduleMidnight();
+      }, delayMs);
+    };
+
+    scheduleMidnight();
+
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      if (midnightTimerRef.current) {
+        window.clearTimeout(midnightTimerRef.current);
+        midnightTimerRef.current = null;
+      }
+    };
+  }, [autoCheckin, maybeAutoCheckin, msUntilNextVietnamMidnight]);
 
   // Clear message after 5 seconds
   useEffect(() => {
@@ -694,8 +919,8 @@ export function useRecommendedContent(options: UseRecommendedContentOptions = {}
 
   const fetchRecommendations = useCallback(async () => {
     // Check if user is logged in
-    const token = localStorage.getItem('auth_token');
-    if (!token) {
+    const userStr = localStorage.getItem('user');
+    if (!userStr) {
       setIsPersonalized(false);
       setIsLoading(false);
       return { contests: [], courses: [], isPersonalized: false };

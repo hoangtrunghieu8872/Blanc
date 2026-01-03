@@ -239,8 +239,19 @@ router.get('/:id/profile', authGuard, async (req, res, next) => {
             const streakCollection = getCollection('user_streaks');
             const streak = await streakCollection.findOne({ userId: targetUserId });
             if (streak) {
+                const today = getVietnamStartOfDay();
+                const yesterdayStart = new Date(today.getTime() - 24 * 60 * 60 * 1000);
+                const lastActivity = streak.lastActivityDate
+                    ? getVietnamStartOfDay(new Date(streak.lastActivityDate))
+                    : null;
+
+                let currentStreak = streak.currentStreak || 0;
+                if (lastActivity && lastActivity < yesterdayStart) {
+                    currentStreak = 0;
+                }
+
                 streakData = {
-                    currentStreak: streak.currentStreak || 0,
+                    currentStreak,
                     longestStreak: streak.longestStreak || 0,
                 };
             }
@@ -1246,9 +1257,12 @@ router.get('/streak/leaderboard', authGuard, async (req, res, next) => {
         const streakCollection = getCollection('user_streaks');
         const usersCollection = getCollection('users');
 
+        const today = getVietnamStartOfDay();
+        const yesterdayStart = new Date(today.getTime() - 24 * 60 * 60 * 1000);
+
         // Get top streaks
         const topStreaks = await streakCollection
-            .find({ currentStreak: { $gt: 0 } })
+            .find({ currentStreak: { $gt: 0 }, lastActivityDate: { $gte: yesterdayStart } })
             .sort({ currentStreak: -1, longestStreak: -1 })
             .limit(limit)
             .toArray();
@@ -1258,7 +1272,15 @@ router.get('/streak/leaderboard', authGuard, async (req, res, next) => {
         }
 
         // Get user info
-        const userIds = topStreaks.map(s => new ObjectId(s.userId));
+        const userIds = topStreaks
+            .map(s => {
+                try {
+                    return new ObjectId(s.userId);
+                } catch {
+                    return null;
+                }
+            })
+            .filter(Boolean);
         const users = await usersCollection
             .find(
                 { _id: { $in: userIds } },
@@ -1269,12 +1291,13 @@ router.get('/streak/leaderboard', authGuard, async (req, res, next) => {
         const userMap = new Map(users.map(u => [u._id.toString(), u]));
 
         const leaderboard = topStreaks.map((streak, index) => {
-            const user = userMap.get(streak.userId);
+            const userIdStr = streak.userId?.toString?.() || '';
+            const user = userMap.get(userIdStr);
             const showProfile = user?.privacy?.showProfile !== false;
 
             return {
                 rank: index + 1,
-                userId: streak.userId,
+                userId: userIdStr,
                 name: showProfile ? (user?.name || 'Ẩn danh') : 'Ẩn danh',
                 avatar: showProfile ? user?.avatar : null,
                 currentStreak: streak.currentStreak,

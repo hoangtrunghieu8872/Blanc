@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Search, Users, Filter, Plus, Loader2, RefreshCw, ChevronRight, ChevronDown, Check, X } from 'lucide-react';
+import { Search, Users, Filter, Plus, Loader2, RefreshCw, ChevronRight, ChevronDown, Check, X, Sparkles, MessageCircle, UsersRound } from 'lucide-react';
 import { Button, Card, Badge } from '../components/ui/Common';
 import CreateTeamPostModal from '../components/CreateTeamPostModal';
 import TeamPostDetailModal from '../components/TeamPostDetailModal';
@@ -68,7 +68,7 @@ const Community: React.FC = () => {
    const [isMembersManagerOpen, setIsMembersManagerOpen] = useState(false);
    const dropdownRef = useRef<HTMLDivElement>(null);
 
-   const isLoggedIn = !!localStorage.getItem('auth_token');
+   const isLoggedIn = !!localStorage.getItem('user');
 
    // Get current user ID from stored user info
    const getCurrentUserId = () => {
@@ -173,15 +173,67 @@ const Community: React.FC = () => {
    return (
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
          {/* Header */}
-         <div className="flex flex-col items-center text-center mb-12">
-            <div className="p-3 bg-primary-100 rounded-2xl mb-4">
-               <Users className="w-8 h-8 text-primary-600" />
+         <section className="relative overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-xl shadow-emerald-100/60 mb-12">
+            <div className="absolute inset-0 bg-linear-to-br from-emerald-50 via-white to-sky-50 opacity-90" aria-hidden="true" />
+            <div className="absolute -top-24 right-8 h-48 w-48 rounded-full bg-emerald-200/40 blur-3xl" aria-hidden="true" />
+            <div className="absolute -bottom-28 left-6 h-56 w-56 rounded-full bg-sky-200/40 blur-3xl" aria-hidden="true" />
+            <div className="relative p-6 md:p-8 lg:p-10">
+               <div className="grid grid-cols-1 lg:grid-cols-[1.35fr_1fr] gap-8 items-center">
+                  <div className="space-y-4 animate-fade-in-up">
+                     <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/80 border border-white/70 text-xs font-semibold text-emerald-700 shadow-sm">
+                        <Sparkles className="w-3.5 h-3.5" />
+                        Cộng đồng ContestHub
+                     </div>
+                     <h1 className="text-3xl md:text-4xl font-bold text-slate-900 leading-tight">
+                        Ghép đội thi đấu, kết nối đúng đồng đội
+                     </h1>
+                     <p className="text-sm md:text-base text-slate-600 leading-relaxed max-w-xl">
+                        Tìm kiếm đồng đội hoàn hảo cho các cuộc thi sắp tới. Kết nối, chia sẻ ý tưởng và cùng nhau chiến thắng.
+                     </p>
+                     <div className="flex flex-wrap gap-3">
+                        <div className="flex items-center gap-2 rounded-xl bg-white/90 border border-slate-100 px-3 py-2 text-xs text-slate-600 shadow-sm">
+                           <UsersRound className="w-4 h-4 text-emerald-500" />
+                           Ghép đội nhanh
+                        </div>
+                        <div className="flex items-center gap-2 rounded-xl bg-white/90 border border-slate-100 px-3 py-2 text-xs text-slate-600 shadow-sm">
+                           <MessageCircle className="w-4 h-4 text-sky-500" />
+                           Thảo luận ý tưởng
+                        </div>
+                        <div className="flex items-center gap-2 rounded-xl bg-white/90 border border-slate-100 px-3 py-2 text-xs text-slate-600 shadow-sm">
+                           <Users className="w-4 h-4 text-amber-500" />
+                           Kết nối mentor
+                        </div>
+                     </div>
+                  </div>
+
+                  <div className="space-y-4 animate-fade-in-up">
+                     <div className="rounded-2xl border border-white/80 bg-white/80 p-5 shadow-md">
+                        <div className="text-xs font-semibold uppercase tracking-widest text-slate-400">Bài đăng đang mở</div>
+                        <div className="mt-3 flex items-end gap-2">
+                           <span className="text-3xl font-bold text-slate-900">{isLoading ? '--' : pagination.total}</span>
+                           <span className="text-sm text-slate-500">bài đăng</span>
+                        </div>
+                        <p className="mt-2 text-xs text-slate-500">
+                           Cập nhật mới mỗi ngày để bạn tìm đúng đồng đội.
+                        </p>
+                     </div>
+
+                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-3">
+                        <div className="rounded-xl border border-emerald-100 bg-emerald-50/80 px-4 py-3">
+                           <div className="text-xs font-semibold text-emerald-700">Vai trò phổ biến</div>
+                           <div className="mt-1 text-2xl font-bold text-emerald-800">
+                              {isLoading ? '--' : ROLES.length}
+                           </div>
+                        </div>
+                        <div className="rounded-xl border border-sky-100 bg-sky-50/80 px-4 py-3">
+                           <div className="text-xs font-semibold text-sky-700">Tốc độ kết nối</div>
+                           <div className="mt-1 text-2xl font-bold text-sky-800">Nhanh</div>
+                        </div>
+                     </div>
+                  </div>
+               </div>
             </div>
-            <h1 className="text-3xl font-bold text-slate-900 mb-4">Ghép đội thi đấu</h1>
-            <p className="text-slate-500 max-w-2xl">
-               Tìm kiếm đồng đội hoàn hảo cho các cuộc thi sắp tới. Kết nối, chia sẻ ý tưởng và cùng nhau chiến thắng.
-            </p>
-         </div>
+         </section>
 
          {/* AI Teammate Recommendations */}
          {isLoggedIn && (
@@ -517,3 +569,4 @@ const Community: React.FC = () => {
 };
 
 export default Community;
+

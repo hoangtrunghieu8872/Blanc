@@ -1,8 +1,12 @@
 import { Router } from 'express';
 import { ObjectId } from 'mongodb';
+import { isIP } from 'net';
+import { GoogleGenAI } from '@google/genai';
 import { connectToDatabase, getCollection } from '../lib/db.js';
 import { authGuard } from '../middleware/auth.js';
 import { sendSystemNotification, sendMarketingEmail } from '../lib/emailService.js';
+import { getPlatformSettings } from '../lib/platformSettings.js';
+import { getMembershipSummary, isTierAtLeast, normalizeTier, setUserMembership } from '../lib/membership.js';
 
 const router = Router();
 
@@ -17,6 +21,7 @@ const requireAdmin = (req, res, next) => {
 // Basic user sanitizer (avoid leaking sensitive fields)
 function sanitizeUser(user) {
     if (!user) return null;
+    const membership = getMembershipSummary(user.membership);
     return {
         id: user._id?.toString() || user.id,
         name: user.name || '',
@@ -25,6 +30,7 @@ function sanitizeUser(user) {
         avatar: user.avatar || null,
         status: user.status || 'active',
         balance: user.balance || 0,
+        membership,
         createdAt: user.createdAt,
         updatedAt: user.updatedAt,
         bannedAt: user.bannedAt,
@@ -81,6 +87,21 @@ function formatPlaintextToHtml(value = '') {
     return escapeHtml(value).replace(/\r?\n/g, '<br/>');
 }
 
+function escapeRegex(value = '') {
+    return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+let geminiClient = null;
+
+function getGeminiClient() {
+    const apiKey = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || '';
+    if (!apiKey) return null;
+    if (!geminiClient) {
+        geminiClient = new GoogleGenAI({ apiKey });
+    }
+    return geminiClient;
+}
+
 // Helper: Get client IP
 function getClientIp(req) {
     return req.headers['x-forwarded-for']?.split(',')[0]?.trim()
@@ -88,6 +109,12 @@ function getClientIp(req) {
         || req.connection?.remoteAddress
         || req.ip
         || '-';
+}
+
+function normalizeIpAddress(value) {
+    const ip = String(value || '').trim();
+    if (!ip) return null;
+    return isIP(ip) ? ip : null;
 }
 
 // Settings collection name
@@ -129,17 +156,7 @@ const DEFAULT_SETTINGS = {
  * Helper: Get or create settings
  */
 async function getSettings() {
-    await connectToDatabase();
-    const collection = getCollection(SETTINGS_COLLECTION);
-
-    let settings = await collection.findOne({ _id: 'platform_config' });
-
-    if (!settings) {
-        await collection.insertOne(DEFAULT_SETTINGS);
-        settings = DEFAULT_SETTINGS;
-    }
-
-    return settings;
+    return getPlatformSettings();
 }
 
 /**
@@ -150,10 +167,15 @@ async function getSettings() {
 router.get('/status', async (_req, res, next) => {
     try {
         const settings = await getSettings();
+        const sessionTimeoutRaw = settings?.security?.sessionTimeout;
+        const sessionTimeout = Number.isFinite(Number(sessionTimeoutRaw)) && Number(sessionTimeoutRaw) > 0
+            ? Number(sessionTimeoutRaw)
+            : 30;
 
         res.json({
             maintenanceMode: settings.general?.maintenanceMode || false,
             siteName: settings.general?.siteName || 'Blanc',
+            sessionTimeout,
         });
     } catch (error) {
         next(error);
@@ -329,6 +351,16 @@ router.put('/users/:id', authGuard, requireAdmin, async (req, res, next) => {
             return res.status(400).json({ error: 'No valid fields to update' });
         }
 
+        // Validate role updates to prevent invalid roles being stored.
+        if (updates.role !== undefined) {
+            const normalizedRole = String(updates.role || '').toLowerCase().trim();
+            const allowedRoles = new Set(['student', 'mentor', 'admin', 'super_admin']);
+            if (!allowedRoles.has(normalizedRole)) {
+                return res.status(400).json({ error: 'Invalid role' });
+            }
+            updates.role = normalizedRole;
+        }
+
         updates.updatedAt = new Date();
 
         await connectToDatabase();
@@ -356,6 +388,85 @@ router.put('/users/:id', authGuard, requireAdmin, async (req, res, next) => {
         });
 
         res.json(sanitizeUser(updatedUser));
+    } catch (error) {
+        next(error);
+    }
+});
+
+// PATCH /api/admin/users/:id/membership - set user membership (admin only)
+router.patch('/users/:id/membership', authGuard, requireAdmin, async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const tier = normalizeTier(req.body?.tier);
+
+        if (!tier) {
+            return res.status(400).json({ error: 'Invalid membership tier' });
+        }
+
+        const durationDays = Number.parseInt(req.body?.durationDays, 10);
+        const expiresAtRaw = req.body?.expiresAt;
+        const now = new Date();
+
+        let expiresAt = null;
+        if (tier !== 'free') {
+            if (expiresAtRaw) {
+                const parsed = new Date(expiresAtRaw);
+                if (Number.isNaN(parsed.getTime())) {
+                    return res.status(400).json({ error: 'Invalid expiresAt' });
+                }
+                expiresAt = parsed;
+            } else if (Number.isFinite(durationDays) && durationDays > 0) {
+                expiresAt = new Date(now.getTime() + durationDays * 24 * 60 * 60 * 1000);
+            } else {
+                // default to 30 days if omitted
+                expiresAt = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+            }
+
+            if (expiresAt.getTime() <= now.getTime()) {
+                return res.status(400).json({ error: 'expiresAt must be in the future for paid tiers' });
+            }
+        }
+
+        await connectToDatabase();
+        const users = getCollection('users');
+        const filter = buildUserIdQuery(id);
+        const before = await users.findOne(filter, { projection: { email: 1, membership: 1, role: 1 } });
+        if (!before) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+
+        // Safety: super_admin can manage any; admin cannot upgrade other admins to business by mistake
+        if (req.user.role !== 'super_admin' && before.role === 'admin' && tier !== 'free') {
+            // Allow admin to extend free only for admins (simple guardrail)
+            return res.status(403).json({ error: 'Only super_admin can change membership for admin accounts' });
+        }
+
+        const updatedMembership = await setUserMembership({
+            userId: before._id?.toString() || before.id || id,
+            membership: {
+                tier,
+                status: 'active',
+                startedAt: now,
+                expiresAt,
+                updatedAt: now,
+            },
+            source: 'admin',
+            actorUserId: req.user.id,
+        });
+
+        logAuditEvent({
+            action: 'MEMBERSHIP_UPDATE',
+            userId: req.user.id,
+            userEmail: req.user.email,
+            userName: req.user.name,
+            target: before.email || String(id),
+            status: 'Success',
+            details: `Set membership to ${tier}${expiresAt ? ` (expires ${expiresAt.toISOString()})` : ''}`,
+            ip: getClientIp(req)
+        });
+
+        const after = await users.findOne(filter);
+        res.json({ user: sanitizeUser(after), membership: updatedMembership });
     } catch (error) {
         next(error);
     }
@@ -558,17 +669,337 @@ router.get('/users/stats', authGuard, requireAdmin, async (req, res, next) => {
     }
 });
 
+// ============ TEAM POSTS (COMMUNITY) ============
+
+function mapTeamPostAdmin(doc) {
+    if (!doc) return null;
+
+    const createdById = doc.createdBy?.id?.toString?.() || (doc.createdBy?.id ? String(doc.createdBy.id) : '');
+
+    return {
+        id: doc._id?.toString(),
+        title: doc.title || '',
+        description: doc.description || '',
+        contestId: doc.contestId ? doc.contestId.toString() : null,
+        contestTitle: doc.contestTitle || null,
+        rolesNeeded: Array.isArray(doc.rolesNeeded) ? doc.rolesNeeded : [],
+        currentMembers: Number(doc.currentMembers || 0),
+        maxMembers: Number(doc.maxMembers || 0),
+        status: doc.status || 'closed',
+        expiresAt: doc.expiresAt ? new Date(doc.expiresAt).toISOString() : null,
+        deletedAt: doc.deletedAt ? new Date(doc.deletedAt).toISOString() : null,
+        createdAt: doc.createdAt ? new Date(doc.createdAt).toISOString() : null,
+        updatedAt: doc.updatedAt ? new Date(doc.updatedAt).toISOString() : null,
+        createdBy: doc.createdBy
+            ? {
+                id: createdById,
+                name: doc.createdBy.name || '',
+                email: doc.createdBy.email || '',
+                avatar: doc.createdBy.avatar || null,
+            }
+            : { id: '', name: '', email: '', avatar: null },
+        members: Array.isArray(doc.members)
+            ? doc.members.map((m) => ({
+                id: m?.id?.toString?.() || (m?.id ? String(m.id) : ''),
+                name: m?.name || '',
+                avatar: m?.avatar || null,
+                role: m?.role || null,
+                joinedAt: m?.joinedAt || null,
+            }))
+            : [],
+        invitedMembers: Array.isArray(doc.invitedMembers)
+            ? doc.invitedMembers.map((m) => ({
+                id: m?.id?.toString?.() || (m?.id ? String(m.id) : ''),
+                name: m?.name || '',
+                email: m?.email || '',
+                avatar: m?.avatar || null,
+                invitedAt: m?.invitedAt ? new Date(m.invitedAt).toISOString() : null,
+            }))
+            : [],
+        roleSlots: Array.isArray(doc.roleSlots) ? doc.roleSlots : null,
+        requirements: doc.requirements || null,
+        skills: Array.isArray(doc.skills) ? doc.skills : null,
+        contactMethod: doc.contactMethod || null,
+        deadline: doc.deadline ? new Date(doc.deadline).toISOString() : null,
+    };
+}
+
+router.get('/team-posts', authGuard, requireAdmin, async (req, res, next) => {
+    try {
+        await connectToDatabase();
+        const teamPosts = getCollection('team_posts');
+
+        const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+        const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 20));
+        const skip = (page - 1) * limit;
+
+        const status = typeof req.query.status === 'string' ? req.query.status : '';
+        const includeDeleted = req.query.includeDeleted === 'true';
+        const includeExpired = req.query.includeExpired === 'true';
+        const contestId = typeof req.query.contestId === 'string' ? req.query.contestId : '';
+        const sortBy = typeof req.query.sortBy === 'string' ? req.query.sortBy : 'createdAt';
+        const sortOrder = req.query.sortOrder === 'asc' ? 1 : -1;
+        const search = typeof req.query.search === 'string' ? req.query.search.trim().slice(0, 100) : '';
+
+        const query = {};
+
+        if (status && ['open', 'closed', 'full'].includes(status)) {
+            query.status = status;
+        }
+
+        if (!includeDeleted) {
+            query.deletedAt = { $exists: false };
+        }
+
+        if (!includeExpired) {
+            query.$and = [
+                {
+                    $or: [
+                        { expiresAt: { $exists: false } },
+                        { expiresAt: null },
+                        { expiresAt: { $gt: new Date() } }
+                    ]
+                }
+            ];
+        }
+
+        if (contestId && ObjectId.isValid(contestId)) {
+            query.contestId = new ObjectId(contestId);
+        }
+
+        if (search) {
+            const escaped = escapeRegex(search);
+            query.$or = [
+                { title: { $regex: escaped, $options: 'i' } },
+                { description: { $regex: escaped, $options: 'i' } },
+                { contestTitle: { $regex: escaped, $options: 'i' } },
+                { 'createdBy.name': { $regex: escaped, $options: 'i' } },
+                { 'createdBy.email': { $regex: escaped, $options: 'i' } },
+            ];
+        }
+
+        const allowedSortFields = ['createdAt', 'updatedAt', 'expiresAt', 'maxMembers', 'currentMembers', 'status'];
+        const sortField = allowedSortFields.includes(sortBy) ? sortBy : 'createdAt';
+
+        const [rows, total] = await Promise.all([
+            teamPosts
+                .find(query)
+                .sort({ [sortField]: sortOrder })
+                .skip(skip)
+                .limit(limit)
+                .toArray(),
+            teamPosts.countDocuments(query),
+        ]);
+
+        res.json({
+            posts: rows.map(mapTeamPostAdmin).filter(Boolean),
+            pagination: {
+                page,
+                limit,
+                total,
+                totalPages: Math.ceil(total / limit),
+            },
+        });
+    } catch (error) {
+        next(error);
+    }
+});
+
+router.get('/team-posts/:id', authGuard, requireAdmin, async (req, res, next) => {
+    try {
+        await connectToDatabase();
+        const { id } = req.params;
+        if (!ObjectId.isValid(id)) {
+            return res.status(400).json({ error: 'Invalid team post id' });
+        }
+
+        const teamPosts = getCollection('team_posts');
+        const post = await teamPosts.findOne({ _id: new ObjectId(id) });
+        if (!post) {
+            return res.status(404).json({ error: 'Not Found' });
+        }
+
+        return res.json(mapTeamPostAdmin(post));
+    } catch (error) {
+        next(error);
+    }
+});
+
+router.patch('/team-posts/:id/status', authGuard, requireAdmin, async (req, res, next) => {
+    try {
+        await connectToDatabase();
+        const { id } = req.params;
+        const status = String(req.body?.status || '').trim();
+
+        if (!ObjectId.isValid(id)) {
+            return res.status(400).json({ error: 'Invalid team post id' });
+        }
+
+        if (!['open', 'closed'].includes(status)) {
+            return res.status(400).json({ error: 'Invalid status' });
+        }
+
+        const teamPosts = getCollection('team_posts');
+        const result = await teamPosts.findOneAndUpdate(
+            { _id: new ObjectId(id) },
+            { $set: { status, updatedAt: new Date() } },
+            { returnDocument: 'after' }
+        );
+
+        const updated = result?.value ?? result;
+        if (!updated) {
+            return res.status(404).json({ error: 'Not Found' });
+        }
+
+        logAuditEvent({
+            action: 'TEAM_POST_STATUS_UPDATED',
+            userId: req.user.id,
+            userEmail: req.user.email,
+            userName: req.user.name,
+            target: updated.title || id,
+            status: 'Success',
+            details: `Set status to ${status}`,
+            ip: getClientIp(req),
+        });
+
+        return res.json(mapTeamPostAdmin(updated));
+    } catch (error) {
+        next(error);
+    }
+});
+
+router.post('/team-posts/:id/soft-delete', authGuard, requireAdmin, async (req, res, next) => {
+    try {
+        await connectToDatabase();
+        const { id } = req.params;
+        if (!ObjectId.isValid(id)) {
+            return res.status(400).json({ error: 'Invalid team post id' });
+        }
+
+        const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim().slice(0, 300) : '';
+        const now = new Date();
+
+        const teamPosts = getCollection('team_posts');
+        const result = await teamPosts.findOneAndUpdate(
+            { _id: new ObjectId(id) },
+            {
+                $set: {
+                    deletedAt: now,
+                    deletedBy: {
+                        id: req.user.id,
+                        email: req.user.email,
+                    },
+                    deletedReason: reason || null,
+                    status: 'closed',
+                    updatedAt: now,
+                },
+            },
+            { returnDocument: 'after' }
+        );
+
+        const updated = result?.value ?? result;
+        if (!updated) {
+            return res.status(404).json({ error: 'Not Found' });
+        }
+
+        logAuditEvent({
+            action: 'TEAM_POST_SOFT_DELETED',
+            userId: req.user.id,
+            userEmail: req.user.email,
+            userName: req.user.name,
+            target: updated.title || id,
+            status: 'Success',
+            details: reason ? `Soft deleted: ${reason}` : 'Soft deleted',
+            ip: getClientIp(req),
+        });
+
+        return res.json(mapTeamPostAdmin(updated));
+    } catch (error) {
+        next(error);
+    }
+});
+
+router.post('/team-posts/:id/restore', authGuard, requireAdmin, async (req, res, next) => {
+    try {
+        await connectToDatabase();
+        const { id } = req.params;
+        if (!ObjectId.isValid(id)) {
+            return res.status(400).json({ error: 'Invalid team post id' });
+        }
+
+        const now = new Date();
+        const teamPosts = getCollection('team_posts');
+        const result = await teamPosts.findOneAndUpdate(
+            { _id: new ObjectId(id) },
+            { $unset: { deletedAt: '', deletedBy: '', deletedReason: '' }, $set: { status: 'closed', updatedAt: now } },
+            { returnDocument: 'after' }
+        );
+
+        const updated = result?.value ?? result;
+        if (!updated) {
+            return res.status(404).json({ error: 'Not Found' });
+        }
+
+        logAuditEvent({
+            action: 'TEAM_POST_RESTORED',
+            userId: req.user.id,
+            userEmail: req.user.email,
+            userName: req.user.name,
+            target: updated.title || id,
+            status: 'Success',
+            details: 'Restored team post',
+            ip: getClientIp(req),
+        });
+
+        return res.json(mapTeamPostAdmin(updated));
+    } catch (error) {
+        next(error);
+    }
+});
+
+router.delete('/team-posts/:id', authGuard, requireAdmin, async (req, res, next) => {
+    try {
+        if (req.user.role !== 'super_admin') {
+            return res.status(403).json({ error: 'Only super_admin can hard-delete team posts' });
+        }
+
+        await connectToDatabase();
+        const { id } = req.params;
+        if (!ObjectId.isValid(id)) {
+            return res.status(400).json({ error: 'Invalid team post id' });
+        }
+
+        const teamPosts = getCollection('team_posts');
+        const post = await teamPosts.findOne({ _id: new ObjectId(id) }, { projection: { title: 1 } });
+        if (!post) {
+            return res.status(404).json({ error: 'Not Found' });
+        }
+
+        await teamPosts.deleteOne({ _id: new ObjectId(id) });
+
+        logAuditEvent({
+            action: 'TEAM_POST_HARD_DELETED',
+            userId: req.user.id,
+            userEmail: req.user.email,
+            userName: req.user.name,
+            target: post.title || id,
+            status: 'Success',
+            details: 'Hard deleted team post',
+            ip: getClientIp(req),
+        });
+
+        return res.json({ ok: true });
+    } catch (error) {
+        next(error);
+    }
+});
+
 /**
  * GET /api/admin/settings
  * Get all platform settings (admin only)
  */
-router.get('/settings', authGuard, async (req, res, next) => {
+router.get('/settings', authGuard, requireAdmin, async (req, res, next) => {
     try {
-        // Check if user is admin
-        if (req.user.role !== 'admin') {
-            return res.status(403).json({ error: 'Admin access required' });
-        }
-
         const settings = await getSettings();
 
         // Remove internal fields
@@ -584,12 +1015,8 @@ router.get('/settings', authGuard, async (req, res, next) => {
  * PATCH /api/admin/settings/general
  * Update general settings (admin only)
  */
-router.patch('/settings/general', authGuard, async (req, res, next) => {
+router.patch('/settings/general', authGuard, requireAdmin, async (req, res, next) => {
     try {
-        if (req.user.role !== 'admin') {
-            return res.status(403).json({ error: 'Admin access required' });
-        }
-
         await connectToDatabase();
         const collection = getCollection(SETTINGS_COLLECTION);
 
@@ -641,12 +1068,8 @@ router.patch('/settings/general', authGuard, async (req, res, next) => {
  * PATCH /api/admin/settings/notifications
  * Update notification settings (admin only)
  */
-router.patch('/settings/notifications', authGuard, async (req, res, next) => {
+router.patch('/settings/notifications', authGuard, requireAdmin, async (req, res, next) => {
     try {
-        if (req.user.role !== 'admin') {
-            return res.status(403).json({ error: 'Admin access required' });
-        }
-
         await connectToDatabase();
         const collection = getCollection(SETTINGS_COLLECTION);
 
@@ -683,12 +1106,8 @@ router.patch('/settings/notifications', authGuard, async (req, res, next) => {
  * PATCH /api/admin/settings/security
  * Update security settings (admin only)
  */
-router.patch('/settings/security', authGuard, async (req, res, next) => {
+router.patch('/settings/security', authGuard, requireAdmin, async (req, res, next) => {
     try {
-        if (req.user.role !== 'admin') {
-            return res.status(403).json({ error: 'Admin access required' });
-        }
-
         await connectToDatabase();
         const collection = getCollection(SETTINGS_COLLECTION);
 
@@ -725,12 +1144,8 @@ router.patch('/settings/security', authGuard, async (req, res, next) => {
  * PATCH /api/admin/settings/features
  * Update feature flags (admin only)
  */
-router.patch('/settings/features', authGuard, async (req, res, next) => {
+router.patch('/settings/features', authGuard, requireAdmin, async (req, res, next) => {
     try {
-        if (req.user.role !== 'admin') {
-            return res.status(403).json({ error: 'Admin access required' });
-        }
-
         await connectToDatabase();
         const collection = getCollection(SETTINGS_COLLECTION);
 
@@ -768,38 +1183,40 @@ router.patch('/settings/features', authGuard, async (req, res, next) => {
  * Reset all user sessions (admin only)
  * This invalidates all JWT tokens by updating a global version
  */
-router.post('/settings/reset-sessions', authGuard, async (req, res, next) => {
+router.post('/settings/reset-sessions', authGuard, requireAdmin, async (req, res, next) => {
     try {
-        if (req.user.role !== 'admin') {
-            return res.status(403).json({ error: 'Admin access required' });
-        }
-
         await connectToDatabase();
         const collection = getCollection(SETTINGS_COLLECTION);
 
-        // Update session version - all tokens with old version will be invalid
-        const sessionVersion = Date.now();
+        // Global JWT revocation: tokens issued before this timestamp are rejected in authGuard.
+        const now = new Date();
 
         await collection.findOneAndUpdate(
             { _id: 'platform_config' },
             {
                 $set: {
-                    sessionVersion,
-                    updatedAt: new Date(),
+                    'security.tokensInvalidBefore': now,
+                    updatedAt: now,
                     updatedBy: req.user.id,
                 }
             },
             { upsert: true }
         );
 
-        // In a real implementation, you would also:
-        // 1. Clear Redis session store
-        // 2. Invalidate all refresh tokens in database
-        // 3. Log this action in audit log
+        logAuditEvent({
+            action: 'SESSIONS_RESET',
+            userId: req.user.id,
+            userEmail: req.user.email,
+            userName: req.user.name,
+            target: 'All Sessions',
+            status: 'Success',
+            details: `Revoked all JWT sessions (tokensInvalidBefore=${now.toISOString()})`,
+            ip: getClientIp(req),
+        });
 
         res.json({
             success: true,
-            sessionsCleared: Math.floor(Math.random() * 50) + 10, // Mock count
+            tokensInvalidBefore: now.toISOString(),
             message: 'All sessions have been reset'
         });
     } catch (error) {
@@ -811,12 +1228,8 @@ router.post('/settings/reset-sessions', authGuard, async (req, res, next) => {
  * POST /api/admin/email/test
  * Send test email (admin only)
  */
-router.post('/email/test', authGuard, async (req, res, next) => {
+router.post('/email/test', authGuard, requireAdmin, async (req, res, next) => {
     try {
-        if (req.user.role !== 'admin') {
-            return res.status(403).json({ error: 'Admin access required' });
-        }
-
         const { email } = req.body;
 
         if (!email) {
@@ -859,12 +1272,8 @@ router.post('/email/test', authGuard, async (req, res, next) => {
  * POST /api/admin/email/broadcast
  * Send broadcast email to multiple users (admin only)
  */
-router.post('/email/broadcast', authGuard, async (req, res, next) => {
+router.post('/email/broadcast', authGuard, requireAdmin, async (req, res, next) => {
     try {
-        if (req.user.role !== 'admin') {
-            return res.status(403).json({ error: 'Admin access required' });
-        }
-
         const { subject, content, audience = 'all', ctaText, ctaUrl } = req.body;
 
         if (!subject || !content) {
@@ -935,12 +1344,8 @@ router.post('/email/broadcast', authGuard, async (req, res, next) => {
  * GET /api/admin/audit-logs
  * Get audit logs with pagination and filtering (admin only)
  */
-router.get('/audit-logs', authGuard, async (req, res, next) => {
+router.get('/audit-logs', authGuard, requireAdmin, async (req, res, next) => {
     try {
-        if (req.user.role !== 'admin') {
-            return res.status(403).json({ error: 'Admin access required' });
-        }
-
         const {
             page = 1,
             limit = 50,
@@ -1034,6 +1439,140 @@ router.get('/audit-logs', authGuard, async (req, res, next) => {
     }
 });
 
+// ============ AI (GEMINI) ============
+
+router.post('/ai/gemini/contest-description', authGuard, requireAdmin, async (req, res, next) => {
+    try {
+        const client = getGeminiClient();
+        if (!client) {
+            return res.status(503).json({ error: 'GEMINI_API_KEY is not configured' });
+        }
+
+        const title = String(req.body?.title || '').trim();
+        const tags = Array.isArray(req.body?.tags) ? req.body.tags.map((t) => String(t).trim()).filter(Boolean) : [];
+
+        if (!title) {
+            return res.status(400).json({ error: 'title is required' });
+        }
+
+        const prompt = `Write a short, exciting description (max 100 words) for a student coding contest titled "${title}".
+The contest focuses on these topics: ${tags.join(', ')}.
+Tone: Professional yet encouraging for university students.`;
+
+        const response = await client.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: prompt,
+        });
+
+        res.json({ text: response.text || '' });
+    } catch (error) {
+        next(error);
+    }
+});
+
+router.post('/ai/gemini/course-syllabus', authGuard, requireAdmin, async (req, res, next) => {
+    try {
+        const client = getGeminiClient();
+        if (!client) {
+            return res.status(503).json({ error: 'GEMINI_API_KEY is not configured' });
+        }
+
+        const title = String(req.body?.title || '').trim();
+        const level = String(req.body?.level || '').trim();
+
+        if (!title || !level) {
+            return res.status(400).json({ error: 'title and level are required' });
+        }
+
+        const prompt = `Create a concise course description and a 4-week syllabus outline for a "${level}" level course titled "${title}". Format it clearly with "Description:" followed by "Syllabus:".`;
+        const response = await client.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: prompt,
+        });
+
+        res.json({ text: response.text || '' });
+    } catch (error) {
+        next(error);
+    }
+});
+
+router.post('/ai/gemini/platform-stats', authGuard, requireAdmin, async (req, res, next) => {
+    try {
+        const client = getGeminiClient();
+        if (!client) {
+            return res.status(503).json({ error: 'GEMINI_API_KEY is not configured' });
+        }
+
+        const stats = req.body?.stats ?? req.body;
+        const prompt = `Analyze these platform stats briefly and give 2 key insights for an admin: ${JSON.stringify(stats)}`;
+        const response = await client.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: prompt,
+        });
+
+        res.json({ text: response.text || '' });
+    } catch (error) {
+        next(error);
+    }
+});
+
+router.post('/ai/gemini/system-announcement', authGuard, requireAdmin, async (req, res, next) => {
+    try {
+        const client = getGeminiClient();
+        if (!client) {
+            return res.status(503).json({ error: 'GEMINI_API_KEY is not configured' });
+        }
+
+        const topic = String(req.body?.topic || '').trim();
+        const audience = String(req.body?.audience || '').trim();
+
+        if (!topic || !audience) {
+            return res.status(400).json({ error: 'topic and audience are required' });
+        }
+
+        const prompt = `Write a professional system announcement for a university platform named "Blanc".
+Topic: "${topic}".
+Target Audience: "${audience}".
+Tone: Clear, polite, and informative.
+Format: Subject line followed by the body text.`;
+
+        const response = await client.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: prompt,
+        });
+
+        res.json({ text: response.text || '' });
+    } catch (error) {
+        next(error);
+    }
+});
+
+router.post('/ai/gemini/audit-logs', authGuard, requireAdmin, async (req, res, next) => {
+    try {
+        const client = getGeminiClient();
+        if (!client) {
+            return res.status(503).json({ error: 'GEMINI_API_KEY is not configured' });
+        }
+
+        const logs = Array.isArray(req.body?.logs) ? req.body.logs : [];
+        const trimmedLogs = logs.slice(0, 20);
+
+        const prompt = `Analyze the following system audit logs for security risks or anomalies.
+Logs: ${JSON.stringify(trimmedLogs)}.
+Provide a concise summary (3-4 bullet points) of potential threats or important actions the admin should notice.
+Focus on failed logins, bans, and critical setting changes.`;
+
+        const response = await client.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: prompt,
+        });
+
+        res.json({ text: response.text || '' });
+    } catch (error) {
+        next(error);
+    }
+});
+
 /**
  * Helper: Log an audit event
  */
@@ -1077,7 +1616,7 @@ export async function logAuditEvent({
  * GET /api/admin/security/analysis
  * Analyze audit logs for security threats (brute force, suspicious patterns)
  */
-router.get('/security/analysis', authGuard, async (req, res, next) => {
+router.get('/security/analysis', authGuard, requireAdmin, async (req, res, next) => {
     try {
         await connectToDatabase();
         const auditLogs = getCollection('audit_logs');
@@ -1250,7 +1789,7 @@ router.get('/security/analysis', authGuard, async (req, res, next) => {
  * POST /api/admin/security/unlock-account
  * Manually unlock a locked account
  */
-router.post('/security/unlock-account', authGuard, async (req, res, next) => {
+router.post('/security/unlock-account', authGuard, requireAdmin, async (req, res, next) => {
     try {
         const { email } = req.body;
         if (!email) {
@@ -1289,25 +1828,29 @@ router.post('/security/unlock-account', authGuard, async (req, res, next) => {
  * POST /api/admin/security/block-ip
  * Block a suspicious IP (add to blocklist)
  */
-router.post('/security/block-ip', authGuard, async (req, res, next) => {
+router.post('/security/block-ip', authGuard, requireAdmin, async (req, res, next) => {
     try {
         const { ip, reason, duration } = req.body;
-        if (!ip) {
-            return res.status(400).json({ error: 'IP address is required' });
+        const ipAddress = normalizeIpAddress(ip);
+        if (!ipAddress) {
+            return res.status(400).json({ error: 'Valid IP address is required' });
         }
 
         await connectToDatabase();
         const blockedIPs = getCollection('blocked_ips');
 
-        const expiresAt = duration ?
-            new Date(Date.now() + duration * 60 * 60 * 1000) : // duration in hours
-            new Date(Date.now() + 24 * 60 * 60 * 1000); // default 24 hours
+        const durationHours = Number(duration);
+        const durationMs = Number.isFinite(durationHours) && durationHours > 0
+            ? durationHours * 60 * 60 * 1000
+            : 24 * 60 * 60 * 1000; // default 24 hours
+
+        const expiresAt = new Date(Date.now() + durationMs);
 
         await blockedIPs.updateOne(
-            { ip },
+            { ip: ipAddress },
             {
                 $set: {
-                    ip,
+                    ip: ipAddress,
                     reason: reason || 'Blocked by admin',
                     blockedBy: req.user?.email,
                     expiresAt,
@@ -1321,13 +1864,13 @@ router.post('/security/block-ip', authGuard, async (req, res, next) => {
         logAuditEvent({
             action: 'IP_BLOCKED',
             userEmail: req.user?.email,
-            target: ip,
+            target: ipAddress,
             status: 'Success',
-            details: `IP ${ip} blocked. Reason: ${reason || 'Suspicious activity'}`,
+            details: `IP ${ipAddress} blocked. Reason: ${reason || 'Suspicious activity'}`,
             ip: getClientIp(req)
         });
 
-        res.json({ ok: true, message: `IP ${ip} has been blocked until ${expiresAt.toISOString()}` });
+        res.json({ ok: true, message: `IP ${ipAddress} has been blocked until ${expiresAt.toISOString()}` });
     } catch (error) {
         next(error);
     }
@@ -1337,17 +1880,18 @@ router.post('/security/block-ip', authGuard, async (req, res, next) => {
  * DELETE /api/admin/security/unblock-ip
  * Remove IP from blocklist
  */
-router.post('/security/unblock-ip', authGuard, async (req, res, next) => {
+router.post('/security/unblock-ip', authGuard, requireAdmin, async (req, res, next) => {
     try {
         const { ip } = req.body;
-        if (!ip) {
-            return res.status(400).json({ error: 'IP address is required' });
+        const ipAddress = normalizeIpAddress(ip);
+        if (!ipAddress) {
+            return res.status(400).json({ error: 'Valid IP address is required' });
         }
 
         await connectToDatabase();
         const blockedIPs = getCollection('blocked_ips');
 
-        const result = await blockedIPs.deleteOne({ ip });
+        const result = await blockedIPs.deleteOne({ ip: ipAddress });
 
         if (result.deletedCount === 0) {
             return res.status(404).json({ error: 'IP not found in blocklist' });
@@ -1356,13 +1900,13 @@ router.post('/security/unblock-ip', authGuard, async (req, res, next) => {
         logAuditEvent({
             action: 'IP_UNBLOCKED',
             userEmail: req.user?.email,
-            target: ip,
+            target: ipAddress,
             status: 'Success',
-            details: `IP ${ip} removed from blocklist`,
+            details: `IP ${ipAddress} removed from blocklist`,
             ip: getClientIp(req)
         });
 
-        res.json({ ok: true, message: `IP ${ip} has been unblocked` });
+        res.json({ ok: true, message: `IP ${ipAddress} has been unblocked` });
     } catch (error) {
         next(error);
     }
@@ -1372,7 +1916,7 @@ router.post('/security/unblock-ip', authGuard, async (req, res, next) => {
  * GET /api/admin/security/blocked-ips
  * Get list of blocked IPs
  */
-router.get('/security/blocked-ips', authGuard, async (req, res, next) => {
+router.get('/security/blocked-ips', authGuard, requireAdmin, async (req, res, next) => {
     try {
         await connectToDatabase();
         const blockedIPs = getCollection('blocked_ips');
@@ -1393,7 +1937,7 @@ router.get('/security/blocked-ips', authGuard, async (req, res, next) => {
  * GET /api/admin/notifications
  * Get admin notifications with pagination
  */
-router.get('/notifications', authGuard, requireAdmin, requireAdmin, async (req, res, next) => {
+router.get('/notifications', authGuard, requireAdmin, async (req, res, next) => {
     try {
         await connectToDatabase();
         const notifications = getCollection('admin_notifications');
@@ -1445,7 +1989,7 @@ router.get('/notifications', authGuard, requireAdmin, requireAdmin, async (req, 
  * PATCH /api/admin/notifications/:id/read
  * Mark a notification as read
  */
-router.patch('/notifications/:id/read', authGuard, requireAdmin, requireAdmin, async (req, res, next) => {
+router.patch('/notifications/:id/read', authGuard, requireAdmin, async (req, res, next) => {
     try {
         const { id } = req.params;
 
@@ -1475,7 +2019,7 @@ router.patch('/notifications/:id/read', authGuard, requireAdmin, requireAdmin, a
  * PATCH /api/admin/notifications/mark-all-read
  * Mark all notifications as read
  */
-router.patch('/notifications/mark-all-read', authGuard, requireAdmin, requireAdmin, async (req, res, next) => {
+router.patch('/notifications/mark-all-read', authGuard, requireAdmin, async (req, res, next) => {
     try {
         await connectToDatabase();
         const notifications = getCollection('admin_notifications');
@@ -1495,7 +2039,7 @@ router.patch('/notifications/mark-all-read', authGuard, requireAdmin, requireAdm
  * DELETE /api/admin/notifications/:id
  * Delete a notification
  */
-router.delete('/notifications/:id', authGuard, requireAdmin, requireAdmin, async (req, res, next) => {
+router.delete('/notifications/:id', authGuard, requireAdmin, async (req, res, next) => {
     try {
         const { id } = req.params;
 
@@ -1522,7 +2066,7 @@ router.delete('/notifications/:id', authGuard, requireAdmin, requireAdmin, async
  * DELETE /api/admin/notifications/clear-all
  * Clear all read notifications
  */
-router.delete('/notifications/clear-all', authGuard, requireAdmin, requireAdmin, async (req, res, next) => {
+router.delete('/notifications/clear-all', authGuard, requireAdmin, async (req, res, next) => {
     try {
         await connectToDatabase();
         const notifications = getCollection('admin_notifications');

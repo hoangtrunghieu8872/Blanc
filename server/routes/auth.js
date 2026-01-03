@@ -5,6 +5,7 @@ import { ObjectId } from 'mongodb';
 import { connectToDatabase, getCollection } from '../lib/db.js';
 import { authGuard, issueToken } from '../middleware/auth.js';
 import { logAuditEvent } from './admin.js';
+import { getMembershipSummary } from '../lib/membership.js';
 
 const router = Router();
 
@@ -17,15 +18,71 @@ function getClientIp(req) {
     || '-';
 }
 
+const AUTH_COOKIE_NAME = process.env.AUTH_COOKIE_NAME || 'auth_token';
+const CSRF_COOKIE_NAME = process.env.CSRF_COOKIE_NAME || 'csrf_token';
+const AUTH_COOKIE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
+function getCookieBaseOptions() {
+  const sameSiteRaw = String(process.env.AUTH_COOKIE_SAMESITE || 'lax').toLowerCase();
+  const sameSite = sameSiteRaw === 'none' ? 'none' : sameSiteRaw === 'strict' ? 'strict' : 'lax';
+
+  const secureEnv = process.env.AUTH_COOKIE_SECURE;
+  const secure =
+    secureEnv !== undefined
+      ? String(secureEnv).toLowerCase() === 'true'
+      : process.env.NODE_ENV === 'production';
+
+  // SameSite=None requires Secure in modern browsers
+  const secureFinal = sameSite === 'none' ? true : secure;
+  const domain = process.env.AUTH_COOKIE_DOMAIN || undefined;
+
+  return {
+    path: '/',
+    sameSite,
+    secure: secureFinal,
+    ...(domain ? { domain } : {}),
+  };
+}
+
+function setAuthCookies(res, token) {
+  const base = getCookieBaseOptions();
+  const csrfToken = crypto.randomBytes(32).toString('hex');
+
+  res.cookie(AUTH_COOKIE_NAME, token, {
+    ...base,
+    httpOnly: true,
+    maxAge: AUTH_COOKIE_MAX_AGE_MS,
+  });
+
+  res.cookie(CSRF_COOKIE_NAME, csrfToken, {
+    ...base,
+    httpOnly: false,
+    maxAge: AUTH_COOKIE_MAX_AGE_MS,
+  });
+}
+
+function clearAuthCookies(res) {
+  const base = getCookieBaseOptions();
+  res.clearCookie(AUTH_COOKIE_NAME, { ...base, httpOnly: true });
+  res.clearCookie(CSRF_COOKIE_NAME, { ...base, httpOnly: false });
+}
+
 // ============ CONSTANTS ============
 const PENDING_REGISTRATION_TTL_MINUTES = 10; // Pending registrations expire in 10 minutes
 const LOGIN_2FA_TTL_MINUTES = 2; // 2FA/OTP session expires in 2 minutes (matches OTP TTL)
 
 // ============ TEST ACCOUNTS (bypass OTP) ============
-const OTP_BYPASS_EMAILS = [
-  'admin@blanc.dev',
-  'admin@contesthub.dev',
-];
+const OTP_BYPASS_EMAILS = (() => {
+  // SECURITY: never allow OTP bypass in production.
+  if (process.env.NODE_ENV === 'production') return [];
+
+  const raw = String(process.env.OTP_BYPASS_EMAILS || '').trim();
+  const list = raw
+    ? raw.split(',').map((v) => v.trim().toLowerCase()).filter(Boolean)
+    : ['admin@blanc.dev', 'admin@contesthub.dev'];
+
+  return Array.from(new Set(list));
+})();
 
 // ============ LOGIN RATE LIMIT CONFIG ============
 const LOGIN_RATE_LIMIT = {
@@ -350,7 +407,8 @@ router.post('/register/initiate', async (req, res, next) => {
 
 /**
  * POST /auth/register/verify
- * Step 2: Complete registration after OTP verification
+ * Step 2: Confirm email OTP verification (does NOT create account)
+ * The account is created in /auth/register/complete after profile + terms acceptance.
  */
 router.post('/register/verify', async (req, res, next) => {
   try {
@@ -368,7 +426,7 @@ router.post('/register/verify', async (req, res, next) => {
     const pendingRegistrations = getCollection('pending_registrations');
     const pending = await pendingRegistrations.findOne({
       email: normalizedEmail,
-      status: 'PENDING',
+      status: { $in: ['PENDING', 'OTP_VERIFIED'] },
       expiresAt: { $gt: new Date() },
     });
 
@@ -376,6 +434,28 @@ router.post('/register/verify', async (req, res, next) => {
       return res.status(400).json({
         error: 'Registration session expired or not found. Please register again.',
         code: 'REGISTRATION_EXPIRED'
+      });
+    }
+
+    // Verify token bound to pending registration (set by /api/otp/verify for register_verify)
+    if (!pending.verificationTokenHash || !pending.verificationExpiry) {
+      return res.status(400).json({
+        error: 'OTP verification required. Please verify your email first.',
+        code: 'OTP_NOT_VERIFIED'
+      });
+    }
+
+    if (pending.verificationTokenHash !== verificationTokenHash) {
+      return res.status(401).json({
+        error: 'Invalid verification token. Please verify OTP again.',
+        code: 'INVALID_VERIFICATION_TOKEN'
+      });
+    }
+
+    if (new Date() > new Date(pending.verificationExpiry)) {
+      return res.status(400).json({
+        error: 'Verification token expired. Please request a new OTP.',
+        code: 'VERIFICATION_TOKEN_EXPIRED'
       });
     }
 
@@ -395,16 +475,134 @@ router.post('/register/verify', async (req, res, next) => {
       });
     }
 
+    // Mark pending registration as OTP_VERIFIED (idempotent)
+    await pendingRegistrations.updateOne(
+      { _id: pending._id },
+      {
+        $set: {
+          status: 'OTP_VERIFIED',
+          otpVerifiedAt: pending.otpVerifiedAt || new Date(),
+          updatedAt: new Date(),
+        }
+      }
+    );
+
+    res.json({
+      ok: true,
+      message: 'Email đã được xác thực. Vui lòng hoàn thiện hồ sơ và chấp nhận điều khoản để tạo tài khoản.',
+      stage: 'OTP_VERIFIED',
+    });
+
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * POST /auth/register/complete
+ * Step 3: Finalize registration after OTP verification + profile + terms acceptance
+ */
+router.post('/register/complete', async (req, res, next) => {
+  try {
+    await connectToDatabase();
+    const {
+      email,
+      verificationToken,
+      profile = {},
+      termsAccepted,
+      privacyAccepted,
+    } = req.body || {};
+
+    if (!email || !verificationToken) {
+      return res.status(400).json({ error: 'Email and verification token are required.' });
+    }
+
+    if (termsAccepted !== true || privacyAccepted !== true) {
+      return res.status(400).json({
+        error: 'You must accept Terms and Privacy Policy to continue.',
+        code: 'CONSENT_REQUIRED'
+      });
+    }
+
+    const primaryRole = String(profile?.primaryRole || '').trim();
+    const experienceLevel = String(profile?.experienceLevel || '').trim();
+
+    if (!primaryRole || !experienceLevel) {
+      return res.status(400).json({
+        error: 'Profile information is required before completing registration.',
+        code: 'PROFILE_REQUIRED'
+      });
+    }
+
+    const normalizedEmail = String(email).toLowerCase().trim();
+    const verificationTokenHash = crypto.createHash('sha256').update(String(verificationToken)).digest('hex');
+
+    const pendingRegistrations = getCollection('pending_registrations');
+    const pending = await pendingRegistrations.findOne({
+      email: normalizedEmail,
+      status: { $in: ['OTP_VERIFIED', 'PENDING'] },
+      expiresAt: { $gt: new Date() },
+    });
+
+    if (!pending) {
+      return res.status(400).json({
+        error: 'Registration session expired or not found. Please register again.',
+        code: 'REGISTRATION_EXPIRED'
+      });
+    }
+
+    if (!pending.verificationTokenHash || !pending.verificationExpiry) {
+      return res.status(400).json({
+        error: 'OTP verification required. Please verify your email first.',
+        code: 'OTP_NOT_VERIFIED'
+      });
+    }
+
+    if (pending.verificationTokenHash !== verificationTokenHash) {
+      return res.status(401).json({
+        error: 'Invalid verification token. Please verify OTP again.',
+        code: 'INVALID_VERIFICATION_TOKEN'
+      });
+    }
+
+    if (new Date() > new Date(pending.verificationExpiry)) {
+      return res.status(400).json({
+        error: 'Verification token expired. Please request a new OTP.',
+        code: 'VERIFICATION_TOKEN_EXPIRED'
+      });
+    }
+
+    // Ensure OTP was verified recently as defense-in-depth
+    const otpSessions = getCollection('otp_sessions');
+    const verifiedSession = await otpSessions.findOne({
+      email: normalizedEmail,
+      status: 'USED',
+      action: 'register_verify',
+      usedAt: { $gt: new Date(Date.now() - 10 * 60 * 1000) },
+    });
+
+    if (!verifiedSession) {
+      return res.status(400).json({
+        error: 'OTP verification required. Please verify your email first.',
+        code: 'OTP_NOT_VERIFIED'
+      });
+    }
+
     // Check if user was created in the meantime
     const users = getCollection('users');
-    const existingUser = await users.findOne({ email: normalizedEmail });
+    const existingUser = await users.findOne({ email: normalizedEmail }, { projection: { _id: 1 } });
     if (existingUser) {
-      // Clean up pending registration
       await pendingRegistrations.deleteOne({ _id: pending._id });
       return res.status(409).json({ error: 'User already exists.' });
     }
 
-    // Create the actual user
+    const skillsRaw = profile?.skills;
+    const skills = Array.isArray(skillsRaw)
+      ? skillsRaw
+      : typeof skillsRaw === 'string'
+        ? skillsRaw.split(',')
+        : [];
+
     const user = {
       name: pending.name,
       email: normalizedEmail,
@@ -412,32 +610,50 @@ router.post('/register/verify', async (req, res, next) => {
       role: 'student',
       avatar: '',
       emailVerified: true,
-      emailVerifiedAt: new Date(),
+      emailVerifiedAt: pending.otpVerifiedAt || new Date(),
+      matchingProfile: {
+        primaryRole,
+        experienceLevel,
+        location: String(profile?.location || '').trim(),
+        skills: skills.map(s => String(s).trim()).filter(Boolean).slice(0, 30),
+      },
+      contestPreferences: {
+        learningGoals: String(profile?.learningGoals || '').trim(),
+      },
+      legal: {
+        termsAcceptedAt: new Date(),
+        privacyAcceptedAt: new Date(),
+      },
+      membership: {
+        tier: 'free',
+        status: 'active',
+        startedAt: new Date(),
+        expiresAt: null,
+        updatedAt: new Date(),
+        source: 'system',
+      },
       createdAt: new Date(),
       updatedAt: new Date(),
     };
 
     const result = await users.insertOne(user);
 
-    // Clean up pending registration
     await pendingRegistrations.updateOne(
       { _id: pending._id },
       { $set: { status: 'COMPLETED', completedAt: new Date() } }
     );
 
-    // Issue token
     const token = issueToken({ _id: result.insertedId, role: user.role, email: user.email });
+    setAuthCookies(res, token);
 
-    // Send welcome email (non-blocking)
     sendWelcomeEmail(user.email, user.name);
 
     res.status(201).json({
       ok: true,
       token,
       user: sanitizeUser({ ...user, _id: result.insertedId }),
-      message: 'Registration successful! Your email has been verified.',
+      message: 'Registration successful!',
     });
-
   } catch (error) {
     next(error);
   }
@@ -546,6 +762,7 @@ router.post('/login/initiate', async (req, res, next) => {
       );
 
       const token = issueToken(user);
+      setAuthCookies(res, token);
 
       return res.json({
         ok: true,
@@ -695,6 +912,7 @@ router.post('/login/verify-2fa', async (req, res, next) => {
     await recordLoginAttempt(normalizedEmail, ip, userAgent, true);
 
     const token = issueToken(user);
+    setAuthCookies(res, token);
 
     res.json({
       ok: true,
@@ -800,11 +1018,22 @@ router.get('/settings/2fa', authGuard, async (req, res, next) => {
 });
 
 // ============ ORIGINAL ROUTES (kept for backward compatibility) ============
+function isLegacyAuthAllowed() {
+  const enabled = String(process.env.ALLOW_LEGACY_AUTH_ROUTES || '').trim().toLowerCase() === 'true';
+  return process.env.NODE_ENV !== 'production' || enabled;
+}
 
 // ============ ORIGINAL ROUTES (kept for backward compatibility) ============
 
 router.post('/register', async (req, res, next) => {
   try {
+    if (!isLegacyAuthAllowed()) {
+      return res.status(410).json({
+        error: 'This endpoint is disabled in production. Use /auth/register/initiate instead.',
+        code: 'LEGACY_AUTH_DISABLED',
+      });
+    }
+
     await connectToDatabase();
     const { name, email, password } = req.body || {};
 
@@ -827,12 +1056,21 @@ router.post('/register', async (req, res, next) => {
       password: hashed,
       role: 'student',
       avatar: req.body.avatar || '',
+      membership: {
+        tier: 'free',
+        status: 'active',
+        startedAt: new Date(),
+        expiresAt: null,
+        updatedAt: new Date(),
+        source: 'system',
+      },
       createdAt: new Date(),
       updatedAt: new Date(),
     };
 
     const result = await users.insertOne(user);
     const token = issueToken({ _id: result.insertedId, role: user.role, email: user.email });
+    setAuthCookies(res, token);
 
     // Send welcome email (non-blocking)
     sendWelcomeEmail(user.email, user.name);
@@ -845,6 +1083,13 @@ router.post('/register', async (req, res, next) => {
 
 router.post('/login', async (req, res, next) => {
   try {
+    if (!isLegacyAuthAllowed()) {
+      return res.status(410).json({
+        error: 'This endpoint is disabled in production. Use /auth/login/initiate instead.',
+        code: 'LEGACY_AUTH_DISABLED',
+      });
+    }
+
     await connectToDatabase();
     const { email, password } = req.body || {};
     const clientIp = getClientIp(req);
@@ -899,6 +1144,7 @@ router.post('/login', async (req, res, next) => {
     });
 
     const token = issueToken(user);
+    setAuthCookies(res, token);
     res.json({ token, user: sanitizeUser(user) });
   } catch (error) {
     next(error);
@@ -923,6 +1169,12 @@ router.get('/me', authGuard, async (req, res, next) => {
   } catch (error) {
     next(error);
   }
+});
+
+// POST /auth/logout - Clear auth cookies (idempotent)
+router.post('/logout', (req, res) => {
+  clearAuthCookies(res);
+  res.json({ ok: true });
 });
 
 // POST /auth/forgot-password - Request password reset
@@ -1023,13 +1275,25 @@ router.post('/reset-password', async (req, res, next) => {
   }
 });
 
+function isMentorBlogCompleted(user) {
+  if (!user || user.role !== 'mentor') return false;
+  const banner = String(user.mentorBlog?.bannerUrl || '').trim();
+  const body = String(user.mentorBlog?.body || '').trim();
+  return Boolean(banner) && Boolean(body);
+}
+
 function sanitizeUser(user) {
+  const membership = getMembershipSummary(user?.membership);
   return {
     id: user._id?.toString(),
     name: user.name,
     email: user.email,
     role: user.role,
     avatar: user.avatar,
+    status: user.status || 'active',
+    balance: typeof user.balance === 'number' ? user.balance : 0,
+    membership,
+    mentorBlogCompleted: isMentorBlogCompleted(user),
     createdAt: user.createdAt,
     updatedAt: user.updatedAt,
   };

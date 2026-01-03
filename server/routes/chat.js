@@ -1,15 +1,16 @@
 import { Router } from 'express';
 import { connectToDatabase, getCollection } from '../lib/db.js';
+import { callOpenRouterChat, DEFAULT_CHAT_MODELS, parseChatModels } from '../lib/openrouter.js';
 import { authGuard } from '../middleware/auth.js';
 import rateLimit from 'express-rate-limit';
 import { getRecommendedTeammates } from '../lib/matchingEngine.js';
+import { getCachedUserMembership, getMembershipEntitlements } from '../lib/membership.js';
 
 const router = Router();
 
 // ============ CONFIGURATION ============
-const OPENROUTER_API_URL = 'https://openrouter.ai/api/v1/chat/completions';
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || '';
-const MODEL = process.env.CHAT_MODEL || 'google/gemini-2.0-flash-001';
+const CHAT_MODELS = parseChatModels(process.env.CHAT_MODELS, DEFAULT_CHAT_MODELS);
 
 // Rate limiting for chat endpoint - stricter than general API
 const chatLimiter = rateLimit({
@@ -22,10 +23,10 @@ const chatLimiter = rateLimit({
 
 // Per-user rate limiting (in-memory, resets on server restart)
 const userMessageCounts = new Map();
-const USER_RATE_LIMIT = 50; // messages per hour
+const USER_RATE_LIMIT = 50; // fallback messages per hour
 const USER_RATE_WINDOW = 60 * 60 * 1000; // 1 hour
 
-function checkUserRateLimit(userId) {
+function checkUserRateLimit(userId, limitPerHour = USER_RATE_LIMIT) {
     const now = Date.now();
     const userData = userMessageCounts.get(userId);
 
@@ -34,7 +35,7 @@ function checkUserRateLimit(userId) {
         return true;
     }
 
-    if (userData.count >= USER_RATE_LIMIT) {
+    if (userData.count >= limitPerHour) {
         return false;
     }
 
@@ -549,41 +550,6 @@ PHẠM VI HỖ TRỢ:
 - Tư vấn cách hoàn thiện hồ sơ`;
 }
 
-/**
- * Call OpenRouter API
- */
-async function callOpenRouter(messages) {
-    if (!OPENROUTER_API_KEY) {
-        throw new Error('OpenRouter API key not configured');
-    }
-
-    const response = await fetch(OPENROUTER_API_URL, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
-            'HTTP-Referer': process.env.FRONTEND_ORIGIN || 'http://localhost:5173',
-            'X-Title': 'Blanc Assistant'
-        },
-        body: JSON.stringify({
-            model: MODEL,
-            messages,
-            max_tokens: 1000,
-            temperature: 0.7,
-            top_p: 0.9
-        })
-    });
-
-    if (!response.ok) {
-        const error = await response.text();
-        console.error('OpenRouter API error:', error);
-        throw new Error('Failed to get AI response');
-    }
-
-    const data = await response.json();
-    return data.choices?.[0]?.message?.content || 'Xin lỗi, tôi không thể trả lời lúc này.';
-}
-
 // ============ ROUTES ============
 
 // POST /api/chat - Send message to AI
@@ -596,9 +562,20 @@ router.post('/', authGuard, chatLimiter, async (req, res, next) => {
             return res.status(401).json({ error: 'Unauthorized' });
         }
 
-        // Check user rate limit
-        if (!checkUserRateLimit(userId)) {
+        // Check user rate limit (membership-aware)
+        let limitPerHour = USER_RATE_LIMIT;
+        try {
+            const membership = await getCachedUserMembership(userId);
+            const entitlements = getMembershipEntitlements(membership?.effectiveTier || 'free');
+            limitPerHour = entitlements.chatMessagesPerHour || USER_RATE_LIMIT;
+        } catch {
+            // fallback to default limit
+        }
+
+        if (!checkUserRateLimit(userId, limitPerHour)) {
             return res.status(429).json({
+                code: 'CHAT_RATE_LIMIT',
+                limitPerHour,
                 error: 'Bạn đã gửi quá nhiều tin nhắn. Vui lòng thử lại sau.'
             });
         }
@@ -657,8 +634,14 @@ router.post('/', authGuard, chatLimiter, async (req, res, next) => {
             { role: 'user', content: userMessageWithContext }
         ];
 
-        // Call AI
-        const aiResponse = await callOpenRouter(messages);
+        // Call AI (with fallback models)
+        const { content: aiResponse, model: modelUsed } = await callOpenRouterChat({
+            apiKey: OPENROUTER_API_KEY,
+            models: CHAT_MODELS,
+            messages,
+            frontendOrigin: process.env.FRONTEND_ORIGIN || 'http://localhost:5173',
+            title: 'Blanc Assistant',
+        });
 
         // Log chat for analytics (without storing full conversation)
         try {
@@ -669,7 +652,8 @@ router.post('/', authGuard, chatLimiter, async (req, res, next) => {
                 messageLength: message.length,
                 responseLength: aiResponse.length,
                 hasContext: !!context,
-                timestamp: new Date()
+                timestamp: new Date(),
+                model: modelUsed
             });
         } catch (logError) {
             console.error('Failed to log chat:', logError);

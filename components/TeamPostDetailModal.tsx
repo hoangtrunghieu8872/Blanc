@@ -93,7 +93,7 @@ const TeamPostDetailModal: React.FC<TeamPostDetailModalProps> = ({
     };
 
     const handleJoinRequest = async () => {
-        if (!localStorage.getItem('auth_token')) {
+        if (!localStorage.getItem('user')) {
             window.dispatchEvent(new CustomEvent('show-auth-modal', { detail: { mode: 'login' } }));
             return;
         }

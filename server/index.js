@@ -3,9 +3,12 @@ import compression from 'compression';
 import cors from 'cors';
 import express from 'express';
 import helmet from 'helmet';
-import rateLimit from 'express-rate-limit';
-import { connectToDatabase } from './lib/db.js';
+import { connectToDatabase, disconnectFromDatabase } from './lib/db.js';
+import { disconnect as disconnectCache } from './lib/cache.js';
 import { startContestReminderScheduler } from './lib/scheduler.js';
+import { RateLimiters, validateProductionSetup } from './lib/security.js';
+import { ipBlocklist } from './middleware/ipBlocklist.js';
+import { requestSanitizer } from './middleware/requestSanitizer.js';
 import authRouter from './routes/auth.js';
 import contestsRouter from './routes/contests.js';
 import coursesRouter from './routes/courses.js';
@@ -24,13 +27,24 @@ import adminRouter from './routes/admin.js';
 import reviewsRouter from './routes/reviews.js';
 import documentsRouter from './routes/documents.js';
 import reportsRouter from './routes/reports.js';
+import reviewReportsRouter from './routes/reviewReports.js';
 import feedbackRouter from './routes/feedback.js';
 import newsRouter from './routes/news.js';
 import recruitmentsRouter from './routes/recruitments.js';
+import membershipRouter from './routes/membership.js';
+import paymentsRouter from './routes/payments.js';
+import mentorsRouter from './routes/mentors.js';
 import { trackConcurrentUsers } from './lib/concurrentUsers.js';
 
 const app = express();
+app.disable('x-powered-by');
 const port = process.env.PORT || 4000;
+let server;
+
+// Validate production setup first
+if (process.env.NODE_ENV === 'production') {
+  validateProductionSetup();
+}
 
 // Trust the upstream proxy so rate limiting can read the real client IP from X-Forwarded-For
 // Defaults to a single hop but can be overridden via TRUST_PROXY env (e.g. "true", "false", number, or subnet string)
@@ -49,31 +63,48 @@ if (trustProxy !== undefined) {
   app.set('trust proxy', 1);
 }
 
+// Parse and validate CORS origins
 const corsOrigins = process.env.FRONTEND_ORIGIN
-  ? process.env.FRONTEND_ORIGIN.split(',').map((origin) => origin.trim()).filter(Boolean)
-  : ['http://localhost:5173'];
+  ? process.env.FRONTEND_ORIGIN.split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean)
+  : [
+    'http://localhost:3000',
+    'http://localhost:3001',
+    'http://localhost:5173',
+    'http://localhost:5174',
+  ];
 
-// Add default production origins if not already included
-const defaultProductionOrigins = [
-  'https://contesthub.homelabo.work',
-  'https://admin.contesthub.homelabo.work',
-  'https://contesthub-4-admin.vercel.app',
-  'https://contesthub-4.vercel.app'
-];
-
-// Merge origins, avoiding duplicates
-const allOrigins = [...new Set([...corsOrigins, ...defaultProductionOrigins])];
+// In production, ensure no localhost origins
+if (process.env.NODE_ENV === 'production') {
+  const hasLocalhost = corsOrigins.some(
+    (o) => o.includes('localhost') || o.includes('127.0.0.1')
+  );
+  if (hasLocalhost) {
+    console.error('[Security] Production mode detected but localhost found in CORS origins!');
+    console.error('[Security] This is a security risk. Please set proper FRONTEND_ORIGIN.');
+    process.exit(1);
+  }
+}
 
 app.use(helmet({ crossOriginResourcePolicy: false }));
 app.use(
   cors({
-    origin: allOrigins,
+    origin: corsOrigins,
     credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-CSRF-Token'],
+    maxAge: 86400, // 24 hours
   })
 );
+
+// Enforce admin-managed IP blocks early (best-effort, cached).
+app.use(ipBlocklist);
+
 app.use(compression());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
+app.use(requestSanitizer);
 
 // Track approximate concurrent users (best-effort, in-memory) for alerting.
 app.use((req, _res, next) => {
@@ -87,13 +118,11 @@ app.use((req, _res, next) => {
   return next();
 });
 
-const apiLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 300,
-  standardHeaders: true,
-  legacyHeaders: false,
-});
-app.use('/api', apiLimiter);
+// Apply rate limiters based on endpoint
+app.use('/api/auth', RateLimiters.auth);
+app.use('/api/otp', RateLimiters.otp);
+app.use('/api/admin', RateLimiters.admin);
+app.use('/api', RateLimiters.api);
 
 app.use('/api/health', healthRouter);
 app.use('/api/auth', authRouter);
@@ -113,9 +142,13 @@ app.use('/api/admin', adminRouter);
 app.use('/api/reviews', reviewsRouter);
 app.use('/api/documents', documentsRouter);
 app.use('/api/reports', reportsRouter);
+app.use('/api/review/reports', reviewReportsRouter);
 app.use('/api/feedback', feedbackRouter);
 app.use('/api/news', newsRouter);
 app.use('/api/recruitments', recruitmentsRouter);
+app.use('/api/membership', membershipRouter);
+app.use('/api/payments', paymentsRouter);
+app.use('/api/mentors', mentorsRouter);
 
 app.use((req, res) => {
   res.status(404).json({ error: 'Not Found' });
@@ -134,7 +167,7 @@ app.use((err, req, res, _next) => {
 
 connectToDatabase()
   .then(() => {
-    app.listen(port, () => {
+    server = app.listen(port, () => {
       // eslint-disable-next-line no-console
       console.log(`API server listening on port ${port}`);
 
@@ -147,3 +180,53 @@ connectToDatabase()
     console.error('Failed to start API server', error);
     process.exit(1);
   });
+
+// ============================================================================
+// GRACEFUL SHUTDOWN HANDLERS
+// ============================================================================
+
+async function gracefulShutdown(signal) {
+  console.log(`\n⚠️ ${signal} received, closing server gracefully...`);
+
+  // Close HTTP server to stop accepting new requests
+  if (server) {
+    server.close(async () => {
+      console.log('✅ HTTP server closed');
+
+      try {
+        // Close database connection
+        await disconnectFromDatabase();
+
+        // Close Redis connection
+        await disconnectCache();
+
+        console.log('✅ All connections closed gracefully');
+        process.exit(0);
+      } catch (err) {
+        console.error('❌ Error during graceful shutdown:', err);
+        process.exit(1);
+      }
+    });
+  }
+
+  // Force shutdown after 30 seconds
+  setTimeout(() => {
+    console.error('💥 Forced shutdown after timeout');
+    process.exit(1);
+  }, 30000);
+}
+
+// Handle termination signals
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
+// Handle uncaught exceptions
+process.on('uncaughtException', (err) => {
+  console.error('💥 Uncaught Exception:', err);
+  gracefulShutdown('UNCAUGHT_EXCEPTION');
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('💥 Unhandled Rejection at:', promise, 'reason:', reason);
+  gracefulShutdown('UNHANDLED_REJECTION');
+});

@@ -1,11 +1,12 @@
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom';
-import { Menu, X, Bell, User as UserIcon, LogOut, ChevronDown, Check, Trophy, Users, Info, BookOpen, Loader2, FileText, BarChart3, Mail, Phone, ShieldCheck, Rocket, Sparkles } from 'lucide-react';
+import { Menu, X, Bell, User as UserIcon, LogOut, ChevronDown, Check, Trophy, Users, Info, BookOpen, Loader2, FileText, Mail, Phone, ShieldCheck, Rocket, Sparkles } from 'lucide-react';
 import { Button, cn } from './ui/Common';
 import { User, Notification } from '../types';
 import { api } from '../lib/api';
-import { useStreak } from '../lib/hooks';
+import StreakBadge from './StreakBadge';
+import MentorBlogPrompt from './MentorBlogPrompt';
 
 interface LayoutProps {
   user: User | null;
@@ -15,9 +16,18 @@ interface LayoutProps {
 const Layout: React.FC<LayoutProps> = ({ user, onLogout }) => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isNotifOpen, setIsNotifOpen] = useState(false);
+  const [isLearningOpen, setIsLearningOpen] = useState(false);
+  const [isLearningMobileOpen, setIsLearningMobileOpen] = useState(false);
+  const [isCommunityOpen, setIsCommunityOpen] = useState(false);
+  const [isCommunityMobileOpen, setIsCommunityMobileOpen] = useState(false);
+  const [isMentorPromptOpen, setIsMentorPromptOpen] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [isLoadingNotifs, setIsLoadingNotifs] = useState(false);
   const notifRef = useRef<HTMLDivElement>(null);
+  const learningRef = useRef<HTMLDivElement>(null);
+  const communityRef = useRef<HTMLDivElement>(null);
+  const learningHoverCloseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const communityHoverCloseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const navigate = useNavigate();
   const location = useLocation();
@@ -25,15 +35,92 @@ const Layout: React.FC<LayoutProps> = ({ user, onLogout }) => {
   // Hide footer on reports page (for full-screen editor experience)
   const hideFooter = location.pathname.startsWith('/reports');
 
-  const navItems = [
-    { name: 'Trang chủ', path: '/' },
-    { name: 'Cuộc thi', path: '/contests' },
+  const learningItems = [
     { name: 'Khóa học', path: '/marketplace' },
+    { name: 'Tài liệu', path: '/documents' },
+  ];
+
+  const communityItems = [
     { name: 'Cộng đồng', path: '/community' },
     { name: 'Bản tin', path: '/news' },
   ];
 
+  const navItems = [
+    { name: 'Trang chủ', path: '/' },
+    { name: 'Cuộc thi', path: '/contests' },
+    { name: 'Mentor', path: '/mentors' },
+  ];
+
+  const leadingNavItems = navItems.slice(0, 2);
+  const trailingNavItems = navItems.slice(2);
+
+  const isLearningActive = location.pathname.startsWith('/marketplace') || location.pathname.startsWith('/documents');
+  const isCommunityActive = location.pathname.startsWith('/community') || location.pathname.startsWith('/news');
+
+  const desktopNavLinkClass = ({ isActive }: { isActive: boolean }) =>
+    cn(
+      'inline-flex items-center px-4 py-2 rounded-full text-sm font-semibold leading-none transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white',
+      isActive
+        ? 'bg-primary-50 text-primary-700 shadow-sm shadow-primary-100/70'
+        : 'text-slate-600 hover:text-primary-600 hover:bg-slate-50'
+    );
+
+  const desktopNavDropdownButtonClass = (isActive: boolean, isOpen: boolean) =>
+    cn(
+      'inline-flex items-center gap-1 px-4 py-2 rounded-full text-sm font-semibold leading-none transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white',
+      isActive
+        ? 'bg-primary-50 text-primary-700 shadow-sm shadow-primary-100/70'
+        : isOpen
+          ? 'bg-slate-50 text-primary-600'
+          : 'text-slate-600 hover:text-primary-600 hover:bg-slate-50'
+    );
+
+  const desktopDropdownLinkClass = ({ isActive }: { isActive: boolean }) =>
+    cn(
+      'flex items-center w-full px-3 py-2 rounded-lg text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white',
+      isActive ? 'bg-primary-50 text-primary-700' : 'text-slate-700 hover:bg-slate-50 hover:text-primary-700'
+    );
+
+  const mobileNavLinkClass = ({ isActive }: { isActive: boolean }) =>
+    cn(
+      'block px-4 py-2 rounded-lg text-base font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white',
+      isActive ? 'bg-primary-50 text-primary-700' : 'text-slate-600 hover:text-primary-600 hover:bg-slate-50'
+    );
+
+  const mobileNavDropdownButtonClass = (isActive: boolean, isOpen: boolean) =>
+    cn(
+      'w-full flex items-center justify-between px-4 py-2 rounded-lg text-base font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white',
+      isActive
+        ? 'bg-primary-50 text-primary-700'
+        : isOpen
+          ? 'bg-slate-50 text-primary-600'
+          : 'text-slate-600 hover:text-primary-600 hover:bg-slate-50'
+    );
+
+  const mobileNavSubLinkClass = ({ isActive }: { isActive: boolean }) =>
+    cn(
+      'block px-4 py-2 rounded-lg text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white',
+      isActive ? 'bg-primary-50 text-primary-700' : 'text-slate-600 hover:text-primary-600 hover:bg-slate-50'
+    );
+
   const unreadCount = notifications.filter(n => !n.isRead).length;
+
+  useEffect(() => {
+    if (!user || user.role !== 'mentor' || user.mentorBlogCompleted) {
+      setIsMentorPromptOpen(false);
+      return;
+    }
+
+    try {
+      const promptKey = `mentor-blog-prompt:${user.id || 'me'}`;
+      if (sessionStorage.getItem(promptKey)) return;
+      sessionStorage.setItem(promptKey, '1');
+    } catch {
+      // ignore sessionStorage errors
+    }
+
+    setIsMentorPromptOpen(true);
+  }, [user?.id, user?.role, user?.mentorBlogCompleted]);
 
   // Fetch notifications from server
   const fetchNotifications = useCallback(async () => {
@@ -108,6 +195,87 @@ const Layout: React.FC<LayoutProps> = ({ user, onLogout }) => {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (learningRef.current && !learningRef.current.contains(event.target as Node)) {
+        setIsLearningOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (communityRef.current && !communityRef.current.contains(event.target as Node)) {
+        setIsCommunityOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const clearLearningHoverCloseTimeout = () => {
+    if (!learningHoverCloseTimeoutRef.current) return;
+    clearTimeout(learningHoverCloseTimeoutRef.current);
+    learningHoverCloseTimeoutRef.current = null;
+  };
+
+  const clearCommunityHoverCloseTimeout = () => {
+    if (!communityHoverCloseTimeoutRef.current) return;
+    clearTimeout(communityHoverCloseTimeoutRef.current);
+    communityHoverCloseTimeoutRef.current = null;
+  };
+
+  const openLearningMenu = () => {
+    clearLearningHoverCloseTimeout();
+    clearCommunityHoverCloseTimeout();
+    setIsCommunityOpen(false);
+    setIsLearningOpen(true);
+  };
+
+  const scheduleCloseLearningMenu = () => {
+    clearLearningHoverCloseTimeout();
+    learningHoverCloseTimeoutRef.current = setTimeout(() => {
+      setIsLearningOpen(false);
+    }, 160);
+  };
+
+  const openCommunityMenu = () => {
+    clearCommunityHoverCloseTimeout();
+    clearLearningHoverCloseTimeout();
+    setIsLearningOpen(false);
+    setIsCommunityOpen(true);
+  };
+
+  const scheduleCloseCommunityMenu = () => {
+    clearCommunityHoverCloseTimeout();
+    communityHoverCloseTimeoutRef.current = setTimeout(() => {
+      setIsCommunityOpen(false);
+    }, 160);
+  };
+
+  useEffect(() => {
+    return () => {
+      clearLearningHoverCloseTimeout();
+      clearCommunityHoverCloseTimeout();
+    };
+  }, []);
+
+  useEffect(() => {
+    setIsLearningOpen(false);
+    setIsLearningMobileOpen(false);
+    setIsCommunityOpen(false);
+    setIsCommunityMobileOpen(false);
+  }, [location.pathname]);
+
+  useEffect(() => {
+    if (!isMenuOpen) {
+      setIsLearningMobileOpen(false);
+      setIsCommunityMobileOpen(false);
+    }
+  }, [isMenuOpen]);
+
   const getIconByType = (type: string) => {
     switch (type) {
       case 'reward': return <Trophy className="w-5 h-5 text-amber-500" />;
@@ -139,166 +307,18 @@ const Layout: React.FC<LayoutProps> = ({ user, onLogout }) => {
     return date.toLocaleDateString('vi-VN');
   };
 
-  // Streak Badge Component (animated, milestone-aware)
-  const StreakBadge: React.FC = () => {
-    const { currentStreak, todayCheckedIn, isLoading, message } = useStreak({ autoCheckin: !!user, userId: user?.id });
-
-    const prevStreakRef = useRef<number | null>(null);
-    const [isCelebrating, setIsCelebrating] = useState(false);
-
-    useEffect(() => {
-      const prev = prevStreakRef.current;
-      prevStreakRef.current = currentStreak;
-      if (todayCheckedIn && prev !== null && currentStreak > prev) {
-        setIsCelebrating(true);
-        const timer = window.setTimeout(() => setIsCelebrating(false), 650);
-        return () => window.clearTimeout(timer);
-      }
-    }, [currentStreak, todayCheckedIn]);
-
-    useEffect(() => {
-      if (!message) return;
-      setIsCelebrating(true);
-      const timer = window.setTimeout(() => setIsCelebrating(false), 650);
-      return () => window.clearTimeout(timer);
-    }, [message]);
-
-    if (isLoading) {
-      return (
-        <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-100 rounded-full ring-1 ring-slate-200/60">
-          <Loader2 className="w-4 h-4 animate-spin text-slate-400" />
-        </div>
-      );
-    }
-
-    // Get streak styling based on milestones
-    const getStreakStyle = () => {
-      if (!todayCheckedIn) {
-        return {
-          containerClass: 'bg-slate-100 text-slate-500',
-          glow: ''
-        };
-      }
-
-      // 100+ days - Legendary
-      if (currentStreak >= 100) {
-        return {
-          containerClass: 'bg-linear-to-r from-violet-500 via-purple-500 to-fuchsia-500 text-white shadow-lg shadow-purple-300',
-          glow: 'ring-2 ring-purple-300 ring-offset-1'
-        };
-      }
-
-      // 30+ days - Master
-      if (currentStreak >= 30) {
-        return {
-          containerClass: 'bg-linear-to-r from-amber-400 via-orange-500 to-red-500 text-white shadow-md shadow-orange-200',
-          glow: 'ring-2 ring-orange-200 ring-offset-1'
-        };
-      }
-
-      // 14+ days - Pro
-      if (currentStreak >= 14) {
-        return {
-          containerClass: 'bg-linear-to-r from-orange-400 to-red-500 text-white shadow-md shadow-red-100',
-          glow: ''
-        };
-      }
-
-      // 7+ days - Streak
-      if (currentStreak >= 7) {
-        return {
-          containerClass: 'bg-linear-to-r from-yellow-400 to-orange-500 text-white shadow-sm',
-          glow: ''
-        };
-      }
-
-      // 3+ days - Starting
-      if (currentStreak >= 3) {
-        return {
-          containerClass: 'bg-linear-to-r from-emerald-400 to-teal-500 text-white',
-          glow: ''
-        };
-      }
-
-      // 1-2 days - New
-      return {
-        containerClass: 'bg-linear-to-r from-green-400 to-emerald-500 text-white',
-        glow: ''
-      };
-    };
-
-    const style = getStreakStyle();
-
-    return (
-      <NavLink
-        to="/profile"
-        className={cn(
-          'group relative inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-sm font-semibold tabular-nums',
-          'ring-1 ring-inset transition-all duration-200',
-          'hover:-translate-y-0.5 hover:shadow-lg active:translate-y-0 active:shadow-sm',
-          'focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500',
-          todayCheckedIn ? 'ring-white/25 overflow-hidden' : 'ring-slate-200/70',
-          style.containerClass,
-          style.glow,
-        )}
-        title={`Chuỗi học tập: ${currentStreak} ngày${todayCheckedIn ? ' ✓' : ''}`}
-      >
-        {todayCheckedIn && currentStreak >= 3 && (
-          <span
-            className="pointer-events-none absolute inset-y-0 left-0 w-[42%] bg-linear-to-r from-white/0 via-white/45 to-white/0 opacity-35 animate-streak-shine"
-            aria-hidden="true"
-          />
-        )}
-
-          <span
-            className={cn(
-              'relative grid place-items-center w-6 h-6 overflow-visible',
-            )}
-            aria-hidden="true"
-          >
-           {todayCheckedIn ? (
-             <>
-                <img
-                 src="/streak/flame-tight.gif"
-                 className="streak-motion w-[150%] h-[150%] -translate-y-[18%] object-contain mix-blend-screen brightness-110 saturate-150 contrast-125 drop-shadow-[0_3px_10px_rgba(0,0,0,0.25)]"
-                 alt=""
-                 aria-hidden="true"
-               />
-                <img
-                  src="/streak/flame-tight.png"
-                 className="streak-reduce-motion w-[150%] h-[150%] -translate-y-[18%] object-contain mix-blend-screen brightness-110 saturate-150 contrast-125 drop-shadow-[0_3px_10px_rgba(0,0,0,0.25)]"
-                  alt=""
-                  aria-hidden="true"
-                />
-              </>
-            ) : (
-              <img
-                src="/streak/flame-tight.png"
-                className="w-[150%] h-[150%] -translate-y-[18%] object-contain mix-blend-screen opacity-60 grayscale"
-                alt=""
-                aria-hidden="true"
-              />
-            )}
-          </span>
-
-        <span className={cn('relative font-extrabold leading-none', isCelebrating ? 'animate-streak-pop' : '')}>
-          {currentStreak}
-        </span>
-
-        {/* star removed */}
-
-        {currentStreak >= 30 && todayCheckedIn && (
-          <span className="absolute -top-1 -right-1 flex h-3.5 w-3.5" aria-hidden="true">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white/80 opacity-50"></span>
-            <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-white/70"></span>
-          </span>
-        )}
-      </NavLink>
-    );
+  const handleMentorPromptUpdate = () => {
+    setIsMentorPromptOpen(false);
+    navigate('/profile?tab=mentor-blog');
   };
 
   return (
     <div className="min-h-screen flex flex-col bg-slate-50 font-sans">
+      <MentorBlogPrompt
+        isOpen={isMentorPromptOpen}
+        onClose={() => setIsMentorPromptOpen(false)}
+        onUpdate={handleMentorPromptUpdate}
+      />
       {/* Sticky Header */}
       <header className="sticky top-0 z-50 w-full bg-white/80 backdrop-blur-md border-b border-slate-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -313,17 +333,118 @@ const Layout: React.FC<LayoutProps> = ({ user, onLogout }) => {
             </div>
 
             {/* Desktop Nav - True Center */}
-            <nav className="hidden md:flex space-x-1">
-              {navItems.map((item) => (
+            <nav className="hidden md:flex items-center gap-1" aria-label="Menu chính">
+              {leadingNavItems.map((item) => (
                 <NavLink
                   key={item.path}
                   to={item.path}
-                  className={({ isActive }) =>
-                    `px-3 py-2 rounded-md text-sm font-medium transition-colors ${isActive
-                      ? 'text-primary-700 bg-primary-50'
-                      : 'text-slate-600 hover:text-primary-600 hover:bg-slate-50'
-                    }`
-                  }
+                  end={item.path === '/'}
+                  className={desktopNavLinkClass}
+                >
+                  {item.name}
+                </NavLink>
+              ))}
+
+              <div
+                className="relative after:absolute after:inset-x-0 after:top-full after:h-3 after:content-['']"
+                ref={learningRef}
+                onMouseEnter={openLearningMenu}
+                onMouseLeave={scheduleCloseLearningMenu}
+              >
+                <button
+                  type="button"
+                  onClick={() => {
+                    clearLearningHoverCloseTimeout();
+                    clearCommunityHoverCloseTimeout();
+                    setIsCommunityOpen(false);
+                    setIsLearningOpen(v => !v);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Escape') setIsLearningOpen(false);
+                  }}
+                  className={desktopNavDropdownButtonClass(isLearningActive, isLearningOpen)}
+                  aria-haspopup="menu"
+                  aria-expanded={isLearningOpen}
+                  aria-controls="learning-menu"
+                >
+                  <span>Học tập</span>
+                </button>
+
+                {isLearningOpen && (
+                  <div
+                    id="learning-menu"
+                    role="menu"
+                    aria-label="Học tập"
+                    className="absolute left-1/2 -translate-x-1/2 mt-3 w-52 bg-white rounded-xl shadow-xl border border-slate-100 p-1 animation-fade-in z-50"
+                  >
+                    {learningItems.map((item) => (
+                      <NavLink
+                        key={item.path}
+                        to={item.path}
+                        className={desktopDropdownLinkClass}
+                        role="menuitem"
+                        onClick={() => setIsLearningOpen(false)}
+                      >
+                        {item.name}
+                      </NavLink>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div
+                className="relative after:absolute after:inset-x-0 after:top-full after:h-3 after:content-['']"
+                ref={communityRef}
+                onMouseEnter={openCommunityMenu}
+                onMouseLeave={scheduleCloseCommunityMenu}
+              >
+                <button
+                  type="button"
+                  onClick={() => {
+                    clearCommunityHoverCloseTimeout();
+                    clearLearningHoverCloseTimeout();
+                    setIsLearningOpen(false);
+                    setIsCommunityOpen(v => !v);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Escape') setIsCommunityOpen(false);
+                  }}
+                  className={desktopNavDropdownButtonClass(isCommunityActive, isCommunityOpen)}
+                  aria-haspopup="menu"
+                  aria-expanded={isCommunityOpen}
+                  aria-controls="community-menu"
+                >
+                  <span>Cộng đồng</span>
+                </button>
+
+                {isCommunityOpen && (
+                  <div
+                    id="community-menu"
+                    role="menu"
+                    aria-label="Cộng đồng"
+                    className="absolute left-1/2 -translate-x-1/2 mt-3 w-52 bg-white rounded-xl shadow-xl border border-slate-100 p-1 animation-fade-in z-50"
+                  >
+                    {communityItems.map((item) => (
+                      <NavLink
+                        key={item.path}
+                        to={item.path}
+                        className={desktopDropdownLinkClass}
+                        role="menuitem"
+                        onClick={() => setIsCommunityOpen(false)}
+                      >
+                        {item.name}
+                      </NavLink>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {trailingNavItems.map((item) => (
+                <NavLink
+                  key={item.path}
+                  to={item.path}
+                  end={item.path === '/'}
+                  className={desktopNavLinkClass}
                 >
                   {item.name}
                 </NavLink>
@@ -335,7 +456,7 @@ const Layout: React.FC<LayoutProps> = ({ user, onLogout }) => {
               {user ? (
                 <div className="flex items-center space-x-3">
                   {/* Streak Indicator */}
-                  <StreakBadge />
+                  <StreakBadge userId={user.id} />
 
                   {/* Notification Bell with Dropdown */}
                   <div className="relative" ref={notifRef}>
@@ -444,9 +565,6 @@ const Layout: React.FC<LayoutProps> = ({ user, onLogout }) => {
                       <NavLink to="/my-team-posts" className="flex px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 items-center">
                         <FileText className="w-4 h-4 mr-2 text-slate-400" /> Bài đăng của tôi
                       </NavLink>
-                      <NavLink to="/reports" className="flex px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 items-center">
-                        <BarChart3 className="w-4 h-4 mr-2 text-slate-400" /> Báo cáo
-                      </NavLink>
                       <button onClick={onLogout} className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center">
                         <LogOut className="w-4 h-4 mr-2" /> Đăng xuất
                       </button>
@@ -481,17 +599,97 @@ const Layout: React.FC<LayoutProps> = ({ user, onLogout }) => {
         {isMenuOpen && (
           <div className="md:hidden bg-white border-b border-slate-200">
             <div className="px-2 pt-2 pb-3 space-y-1 sm:px-3">
-              {navItems.map((item) => (
+              {leadingNavItems.map((item) => (
                 <NavLink
                   key={item.path}
                   to={item.path}
                   onClick={() => setIsMenuOpen(false)}
-                  className={({ isActive }) =>
-                    `block px-3 py-2 rounded-md text-base font-medium ${isActive
-                      ? 'text-primary-700 bg-primary-50'
-                      : 'text-slate-600 hover:text-primary-600 hover:bg-slate-50'
-                    }`
+                  end={item.path === '/'}
+                  className={mobileNavLinkClass}
+                >
+                  {item.name}
+                </NavLink>
+              ))}
+
+              <div>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setIsLearningMobileOpen(v => {
+                      const next = !v;
+                      if (next) setIsCommunityMobileOpen(false);
+                      return next;
+                    })
                   }
+                  className={mobileNavDropdownButtonClass(isLearningActive, isLearningMobileOpen)}
+                  aria-expanded={isLearningMobileOpen}
+                  aria-controls="learning-menu-mobile"
+                >
+                  <span>Học tập</span>
+                </button>
+
+                {isLearningMobileOpen && (
+                  <div id="learning-menu-mobile" className="mt-1 space-y-1 pl-4 border-l border-slate-100 ml-4">
+                    {learningItems.map((item) => (
+                      <NavLink
+                        key={item.path}
+                        to={item.path}
+                        onClick={() => {
+                          setIsMenuOpen(false);
+                          setIsLearningMobileOpen(false);
+                        }}
+                        className={mobileNavSubLinkClass}
+                      >
+                        {item.name}
+                      </NavLink>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setIsCommunityMobileOpen(v => {
+                      const next = !v;
+                      if (next) setIsLearningMobileOpen(false);
+                      return next;
+                    })
+                  }
+                  className={mobileNavDropdownButtonClass(isCommunityActive, isCommunityMobileOpen)}
+                  aria-expanded={isCommunityMobileOpen}
+                  aria-controls="community-menu-mobile"
+                >
+                  <span>Cộng đồng</span>
+                </button>
+
+                {isCommunityMobileOpen && (
+                  <div id="community-menu-mobile" className="mt-1 space-y-1 pl-4 border-l border-slate-100 ml-4">
+                    {communityItems.map((item) => (
+                      <NavLink
+                        key={item.path}
+                        to={item.path}
+                        onClick={() => {
+                          setIsMenuOpen(false);
+                          setIsCommunityMobileOpen(false);
+                        }}
+                        className={mobileNavSubLinkClass}
+                      >
+                        {item.name}
+                      </NavLink>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {trailingNavItems.map((item) => (
+                <NavLink
+                  key={item.path}
+                  to={item.path}
+                  onClick={() => setIsMenuOpen(false)}
+                  end={item.path === '/'}
+                  className={mobileNavLinkClass}
                 >
                   {item.name}
                 </NavLink>
@@ -506,7 +704,7 @@ const Layout: React.FC<LayoutProps> = ({ user, onLogout }) => {
                         <img src="/streak/flame-tight.png" className="streak-reduce-motion w-5 h-5 object-contain mix-blend-screen" alt="" aria-hidden="true" />
                         <span className="font-medium text-slate-700">Chuỗi học tập</span>
                       </div>
-                      <StreakBadge />
+                      <StreakBadge userId={user.id} />
                     </div>
                   </div>
                   <div className="border-t border-slate-100 my-2 pt-2">
@@ -520,9 +718,6 @@ const Layout: React.FC<LayoutProps> = ({ user, onLogout }) => {
                   </NavLink>
                   <NavLink to="/my-team-posts" className="block px-3 py-2 rounded-md text-base font-medium text-slate-600 hover:bg-slate-50">
                     Bài đăng của tôi
-                  </NavLink>
-                  <NavLink to="/reports" className="block px-3 py-2 rounded-md text-base font-medium text-slate-600 hover:bg-slate-50">
-                    Báo cáo
                   </NavLink>
                   <button onClick={() => { onLogout(); setIsMenuOpen(false); }} className="block w-full text-left px-3 py-2 rounded-md text-base font-medium text-red-600 hover:bg-red-50">
                     Đăng xuất

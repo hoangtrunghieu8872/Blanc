@@ -1,10 +1,17 @@
-import { apiCache, sessionCache, CACHE_TTL } from './cache';
+import { apiCache, sessionCache, localCache, CACHE_TTL } from './cache';
 
 // API Configuration
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000/api';
 
 // Request deduplication - prevent multiple identical requests
 const pendingRequests = new Map<string, Promise<unknown>>();
+
+function getCookieValue(name: string): string | null {
+  if (typeof document === 'undefined') return null;
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const match = document.cookie.match(new RegExp(`(?:^|; )${escaped}=([^;]*)`));
+  return match ? decodeURIComponent(match[1]) : null;
+}
 
 // Generic fetch wrapper with error handling and caching
 async function fetchAPI<T>(
@@ -13,13 +20,15 @@ async function fetchAPI<T>(
     useCache?: boolean;
     cacheTTL?: number;
     cacheKey?: string;
+    persist?: 'session' | 'local';
   }
 ): Promise<T> {
   const url = `${API_BASE_URL}${endpoint}`;
-  const { useCache = false, cacheTTL, cacheKey, ...fetchOptions } = options || {};
+  const { useCache = false, cacheTTL, cacheKey, persist = 'session', ...fetchOptions } = options || {};
 
   // Generate cache key
   const key = cacheKey || `api:${endpoint}`;
+  const persistentCache = persist === 'local' ? localCache : sessionCache;
 
   // Check memory cache first (for GET requests only)
   if (useCache && (!fetchOptions.method || fetchOptions.method === 'GET')) {
@@ -28,11 +37,11 @@ async function fetchAPI<T>(
       return cached;
     }
 
-    // Also check session storage for persistence
-    const sessionCached = sessionCache.get<T>(key);
-    if (sessionCached) {
-      apiCache.set(key, sessionCached, cacheTTL);
-      return sessionCached;
+    // Also check persistent storage (sessionStorage or localStorage)
+    const persistentCached = persistentCache.get<T>(key);
+    if (persistentCached) {
+      apiCache.set(key, persistentCached, cacheTTL);
+      return persistentCached;
     }
   }
 
@@ -47,16 +56,21 @@ async function fetchAPI<T>(
       'Content-Type': 'application/json',
       ...fetchOptions?.headers,
     },
+    credentials: 'include',
     ...fetchOptions,
   };
 
-  // Add auth token if available
-  const token = localStorage.getItem('auth_token');
-  if (token) {
-    config.headers = {
-      ...config.headers,
-      Authorization: `Bearer ${token}`,
-    };
+  // CSRF token for cookie-based auth (required for state-changing requests)
+  const method = String(config.method || 'GET').toUpperCase();
+  const isSafeMethod = method === 'GET' || method === 'HEAD' || method === 'OPTIONS';
+  if (!isSafeMethod) {
+    const csrf = getCookieValue('csrf_token');
+    if (csrf) {
+      config.headers = {
+        ...config.headers,
+        'X-CSRF-Token': csrf,
+      };
+    }
   }
 
   const requestPromise = (async () => {
@@ -73,7 +87,7 @@ async function fetchAPI<T>(
       // Cache successful GET responses
       if (useCache && isGet && cacheTTL) {
         apiCache.set(key, data, cacheTTL);
-        sessionCache.set(key, data, cacheTTL);
+        persistentCache.set(key, data, cacheTTL);
       }
 
       return data as T;
@@ -95,7 +109,10 @@ async function fetchAPI<T>(
 
 // API exports with cache support
 export const api = {
-  get: <T>(endpoint: string, options?: { useCache?: boolean; cacheTTL?: number; cacheKey?: string }) =>
+  get: <T>(
+    endpoint: string,
+    options?: { useCache?: boolean; cacheTTL?: number; cacheKey?: string; persist?: 'session' | 'local' }
+  ) =>
     fetchAPI<T>(endpoint, { method: 'GET', ...options }),
 
   post: <T>(endpoint: string, data?: unknown) =>
@@ -122,15 +139,15 @@ export const api = {
 
 // Cached API helpers for common endpoints
 export const cachedApi = {
-  getStats: () => api.get('/stats', { useCache: true, cacheTTL: CACHE_TTL.STATS }),
+  getStats: () => api.get('/stats', { useCache: true, cacheTTL: CACHE_TTL.STATS, persist: 'local' }),
 
   getContests: (limit = 10) =>
-    api.get(`/contests?limit=${limit}`, { useCache: true, cacheTTL: CACHE_TTL.CONTESTS }),
+    api.get(`/contests?limit=${limit}`, { useCache: true, cacheTTL: CACHE_TTL.CONTESTS, persist: 'local' }),
 
   getCourses: (limit = 10, level?: string) => {
     const params = new URLSearchParams({ limit: limit.toString() });
     if (level) params.append('level', level);
-    return api.get(`/courses?${params}`, { useCache: true, cacheTTL: CACHE_TTL.COURSES });
+    return api.get(`/courses?${params}`, { useCache: true, cacheTTL: CACHE_TTL.COURSES, persist: 'local' });
   },
 
   getCourseDetail: (id: string) =>
@@ -138,6 +155,9 @@ export const cachedApi = {
 
   getContestDetail: (id: string) =>
     api.get(`/contests/${id}`, { useCache: true, cacheTTL: CACHE_TTL.COURSE_DETAIL, cacheKey: `contest:${id}` }),
+
+  getMembershipPlans: () =>
+    api.get('/membership/plans', { useCache: true, cacheTTL: CACHE_TTL.MEMBERSHIP_PLANS, cacheKey: 'membership:plans', persist: 'local' }),
 };
 
 // Cache invalidation helpers
@@ -145,6 +165,7 @@ export const invalidateCache = {
   all: () => {
     apiCache.clear();
     sessionCache.clear();
+    localCache.clear();
   },
   stats: () => apiCache.invalidate('api:/stats'),
   contests: () => apiCache.invalidatePattern('contest'),
@@ -153,4 +174,3 @@ export const invalidateCache = {
 };
 
 export { API_BASE_URL, CACHE_TTL };
-

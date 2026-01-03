@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, Clock, MapPin, Trophy, Loader2, ChevronDown, Zap } from 'lucide-react';
 import { Card, Badge, Button } from './ui/Common';
 import { ScheduleEvent } from '../types';
@@ -23,10 +23,27 @@ interface ScheduleCalendarProps {
     className?: string;
 }
 
+function safeParseMs(value: unknown): number | null {
+    if (!value) return null;
+    if (value instanceof Date) return Number.isFinite(value.getTime()) ? value.getTime() : null;
+    if (typeof value !== 'string') return null;
+    const ms = Date.parse(value);
+    return Number.isFinite(ms) ? ms : null;
+}
+
+function safeIsoDay(value: unknown): string | null {
+    if (!value) return null;
+    const iso = value instanceof Date ? value.toISOString() : typeof value === 'string' ? value : null;
+    if (!iso) return null;
+    const day = iso.slice(0, 10);
+    return /^\d{4}-\d{2}-\d{2}$/.test(day) ? day : null;
+}
+
 const ScheduleCalendar: React.FC<ScheduleCalendarProps> = ({ onEventClick, className = '' }) => {
     const [currentDate, setCurrentDate] = useState(new Date());
     const [selectedDate, setSelectedDate] = useState<Date | null>(null);
     const [showEventJump, setShowEventJump] = useState(false);
+    const eventJumpRef = useRef<HTMLDivElement>(null);
 
     // Fetch ALL events for jump menu (wider range)
     const allEventsRange = useMemo(() => {
@@ -37,10 +54,43 @@ const ScheduleCalendar: React.FC<ScheduleCalendarProps> = ({ onEventClick, class
         return { start, end };
     }, []);
 
-    const { schedule: allEvents } = useUserSchedule({
-        startDate: allEventsRange.start,
-        endDate: allEventsRange.end,
-    });
+    // Lazy-fetch jump menu events only when the dropdown opens (prevents UI freezes on large datasets)
+    const jumpFetchStatusRef = useRef<'idle' | 'loading' | 'done'>('idle');
+    const {
+        schedule: jumpEvents,
+        isLoading: isJumpLoading,
+        error: jumpError,
+        refetch: refetchJumpEvents,
+    } = useUserSchedule({ autoFetch: false });
+
+    const triggerJumpFetch = useCallback(() => {
+        jumpFetchStatusRef.current = 'loading';
+        return refetchJumpEvents(allEventsRange.start, allEventsRange.end)
+            .then(() => {
+                jumpFetchStatusRef.current = 'done';
+            })
+            .catch((err) => {
+                jumpFetchStatusRef.current = 'idle';
+                throw err;
+            });
+    }, [allEventsRange.end, allEventsRange.start, refetchJumpEvents]);
+
+    useEffect(() => {
+        if (!showEventJump) return;
+        if (jumpFetchStatusRef.current !== 'idle') return;
+        triggerJumpFetch().catch(() => { });
+    }, [showEventJump, triggerJumpFetch]);
+
+    useEffect(() => {
+        if (!showEventJump) return;
+        const handleClickOutside = (event: MouseEvent) => {
+            if (eventJumpRef.current && !eventJumpRef.current.contains(event.target as Node)) {
+                setShowEventJump(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, [showEventJump]);
 
     // Calculate date range for fetching (current month ± 1 week buffer)
     const dateRange = useMemo(() => {
@@ -110,10 +160,11 @@ const ScheduleCalendar: React.FC<ScheduleCalendarProps> = ({ onEventClick, class
 
     // Get events for specific date
     function getEventsForDate(date: Date, events: ScheduleEvent[]): ScheduleEvent[] {
-        const dateStr = date.toISOString().split('T')[0];
+        const dateStr = date.toISOString().slice(0, 10);
         return events.filter(event => {
-            const startDate = event.dateStart.split('T')[0];
-            const endDate = event.deadline.split('T')[0];
+            const startDate = safeIsoDay(event.dateStart);
+            const endDate = safeIsoDay(event.deadline) || startDate;
+            if (!startDate || !endDate) return false;
             return dateStr >= startDate && dateStr <= endDate;
         });
     }
@@ -142,19 +193,22 @@ const ScheduleCalendar: React.FC<ScheduleCalendarProps> = ({ onEventClick, class
 
     // Sorted events for jump menu
     const sortedUpcomingEvents = useMemo(() => {
-        const now = new Date();
-        return [...allEvents]
-            .filter(e => new Date(e.deadline) >= now) // Only upcoming/ongoing
-            .sort((a, b) => new Date(a.dateStart).getTime() - new Date(b.dateStart).getTime());
-    }, [allEvents]);
+        if (!showEventJump) return [];
+        const nowMs = Date.now();
+        return [...jumpEvents]
+            .filter(e => (safeParseMs(e.deadline) ?? safeParseMs(e.dateStart) ?? 0) >= nowMs) // upcoming/ongoing
+            .sort((a, b) => (safeParseMs(a.dateStart) ?? 0) - (safeParseMs(b.dateStart) ?? 0))
+            .slice(0, 50);
+    }, [jumpEvents, showEventJump]);
 
     const pastEvents = useMemo(() => {
-        const now = new Date();
-        return [...allEvents]
-            .filter(e => new Date(e.deadline) < now)
-            .sort((a, b) => new Date(b.dateStart).getTime() - new Date(a.dateStart).getTime())
-            .slice(0, 5); // Last 5 past events
-    }, [allEvents]);
+        if (!showEventJump) return [];
+        const nowMs = Date.now();
+        return [...jumpEvents]
+            .filter(e => (safeParseMs(e.deadline) ?? safeParseMs(e.dateStart) ?? 0) < nowMs)
+            .sort((a, b) => (safeParseMs(b.dateStart) ?? 0) - (safeParseMs(a.dateStart) ?? 0))
+            .slice(0, 5);
+    }, [jumpEvents, showEventJump]);
 
     // Get selected date events
     const selectedDateEvents = useMemo(() => {
@@ -164,7 +218,9 @@ const ScheduleCalendar: React.FC<ScheduleCalendarProps> = ({ onEventClick, class
 
     // Format date for display
     const formatEventDate = (dateStr: string) => {
-        const date = new Date(dateStr);
+        const ms = safeParseMs(dateStr);
+        if (!ms) return '—';
+        const date = new Date(ms);
         return date.toLocaleDateString('vi-VN', {
             hour: '2-digit',
             minute: '2-digit',
@@ -209,13 +265,12 @@ const ScheduleCalendar: React.FC<ScheduleCalendarProps> = ({ onEventClick, class
                     </div>
                     <div className="flex items-center gap-2">
                         {/* Jump to Event Button */}
-                        <div className="relative">
+                        <div className="relative" ref={eventJumpRef}>
                             <Button
                                 size="sm"
                                 variant="secondary"
                                 onClick={() => setShowEventJump(!showEventJump)}
                                 className="flex items-center gap-1"
-                                disabled={allEvents.length === 0}
                             >
                                 <Zap className="w-3.5 h-3.5" />
                                 <span className="hidden sm:inline">Chuyển nhanh</span>
@@ -225,10 +280,6 @@ const ScheduleCalendar: React.FC<ScheduleCalendarProps> = ({ onEventClick, class
                             {/* Event Jump Dropdown */}
                             {showEventJump && (
                                 <>
-                                    <div
-                                        className="fixed inset-0 z-10"
-                                        onClick={() => setShowEventJump(false)}
-                                    />
                                     <div className="absolute right-0 top-full mt-2 w-72 bg-white rounded-xl shadow-xl border border-slate-200 z-20 max-h-80 overflow-hidden">
                                         <div className="p-3 border-b border-slate-100 bg-slate-50">
                                             <h4 className="font-semibold text-sm text-slate-700 flex items-center gap-2">
@@ -238,7 +289,20 @@ const ScheduleCalendar: React.FC<ScheduleCalendarProps> = ({ onEventClick, class
                                         </div>
 
                                         <div className="overflow-y-auto max-h-60">
-                                            {/* Upcoming Events */}
+                                            {jumpError ? (
+                                                <div className="p-4 text-center">
+                                                    <p className="text-sm text-red-600 mb-3">{jumpError}</p>
+                                                    <Button size="sm" variant="secondary" onClick={() => triggerJumpFetch()}>
+                                                        Th? l?i
+                                                    </Button>
+                                                </div>
+                                            ) : isJumpLoading ? (
+                                                <div className="flex items-center justify-center py-10">
+                                                    <Loader2 className="w-6 h-6 animate-spin text-primary-600" />
+                                                </div>
+                                            ) : (
+                                                <>
+                                                    {/* Upcoming Events */}
                                             {sortedUpcomingEvents.length > 0 && (
                                                 <div className="p-2">
                                                     <p className="text-xs font-medium text-emerald-600 px-2 py-1">
@@ -306,6 +370,8 @@ const ScheduleCalendar: React.FC<ScheduleCalendarProps> = ({ onEventClick, class
                                                 <div className="p-4 text-center text-sm text-slate-500">
                                                     Chưa có sự kiện nào được đăng ký
                                                 </div>
+                                            )}
+                                                </>
                                             )}
                                         </div>
                                     </div>

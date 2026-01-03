@@ -81,6 +81,9 @@ async function setupIndexes() {
             // Role + Status compound index (for admin filtering)
             { key: { role: 1, status: 1 }, name: 'idx_role_status' },
 
+            // Mentor blog completion filter
+            { key: { role: 1, mentorBlogCompleted: 1, createdAt: -1 }, name: 'idx_role_blog_completion' },
+
             // Search index (name + email)
             { key: { name: 'text', email: 'text' }, name: 'idx_search_text' },
 
@@ -346,6 +349,37 @@ async function setupIndexes() {
             { key: { updatedAt: -1 }, name: 'idx_updated' },
         ], 'reports');
 
+        // ============ PAYMENT_ORDERS COLLECTION ============
+        console.log('?? Payment Orders collection...');
+        const paymentOrders = db.collection('payment_orders');
+
+        await safeCreateIndexes(paymentOrders, [
+            { key: { orderCode: 1 }, unique: true, name: 'idx_order_code_unique' },
+            { key: { userId: 1, createdAt: -1 }, name: 'idx_user_orders' },
+            { key: { status: 1, createdAt: -1 }, name: 'idx_order_status' },
+            { key: { provider: 1, providerTransactionId: 1 }, name: 'idx_provider_tx' },
+        ], 'payment_orders');
+
+        // ============ PAYMENT_TRANSACTIONS COLLECTION ============
+        console.log('?? Payment Transactions collection...');
+        const paymentTransactions = db.collection('payment_transactions');
+
+        await safeCreateIndexes(paymentTransactions, [
+            { key: { provider: 1, providerTransactionId: 1 }, unique: true, name: 'idx_provider_tx_unique' },
+            { key: { orderId: 1 }, name: 'idx_order' },
+            { key: { orderCode: 1 }, name: 'idx_order_code' },
+            { key: { status: 1, createdAt: -1 }, name: 'idx_status_created' },
+        ], 'payment_transactions');
+
+        // ============ PAYMENT_WEBHOOK_EVENTS COLLECTION ============
+        console.log('?? Payment Webhook Events collection...');
+        const paymentWebhookEvents = db.collection('payment_webhook_events');
+
+        await safeCreateIndexes(paymentWebhookEvents, [
+            { key: { provider: 1, providerEventId: 1 }, unique: true, name: 'idx_provider_event_unique' },
+            { key: { receivedAt: -1 }, name: 'idx_received' },
+        ], 'payment_webhook_events');
+
         // ============ SUMMARY ============
         console.log('\n' + '='.repeat(50));
         console.log('✅ All indexes created successfully!');
@@ -355,7 +389,8 @@ async function setupIndexes() {
         console.log('\n📊 Index Summary:');
         const collections = ['users', 'contests', 'courses', 'registrations', 'team_posts',
             'notifications', 'audit_logs', 'login_attempts', 'blocked_ips',
-            'user_streaks', 'course_enrollments', 'reviews', 'reports'];
+            'user_streaks', 'course_enrollments', 'reviews', 'reports',
+            'payment_orders', 'payment_transactions', 'payment_webhook_events'];
 
         for (const collName of collections) {
             const coll = db.collection(collName);

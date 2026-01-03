@@ -53,12 +53,14 @@ function getCachedStreak(userId?: string): StreakData | null {
         // Prefer per-user cache; fall back to legacy key for backward compatibility
         const userKey = buildKey(STREAK_CACHE_KEY, userId);
         const legacyKey = STREAK_CACHE_KEY;
-        const cached = localStorage.getItem(userKey) ?? localStorage.getItem(legacyKey);
+        const userCached = localStorage.getItem(userKey);
+        const legacyCached = localStorage.getItem(legacyKey);
+        const cached = userCached ?? legacyCached;
         if (!cached) return null;
         
         const parsed: CachedStreakData = JSON.parse(cached);
         const today = getVietnamDate();
-        const usedKey = localStorage.getItem(userKey) ? userKey : legacyKey;
+        const usedKey = userCached != null ? userKey : legacyKey;
         
         // Invalidate if:
         // 1. Different day
@@ -68,9 +70,23 @@ function getCachedStreak(userId?: string): StreakData | null {
             return null;
         }
         
-        if (userId && parsed.userId && parsed.userId !== userId) {
-            localStorage.removeItem(usedKey);
-            return null;
+        if (userId) {
+            // Never trust unscoped legacy cache when a userId is provided (prevents cross-account leaks).
+            // If the legacy cache somehow contains the matching userId, migrate it to the per-user key.
+            if (usedKey === legacyKey) {
+                localStorage.removeItem(legacyKey);
+                if (parsed.userId && parsed.userId === userId) {
+                    localStorage.setItem(userKey, cached);
+                    return parsed.data;
+                }
+                return null;
+            }
+
+            // Per-user cache must explicitly match the requested userId.
+            if (!parsed.userId || parsed.userId !== userId) {
+                localStorage.removeItem(userKey);
+                return null;
+            }
         }
         
         return parsed.data;

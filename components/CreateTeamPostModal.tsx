@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { X, Users, Calendar, MessageSquare, AlertCircle, Loader2, Check, Plus, Minus, ChevronDown, ChevronUp, UserPlus, Search } from 'lucide-react';
 import { Button, Card, Badge, Input, Dropdown, DropdownOption } from './ui/Common';
 import { api } from '../lib/api';
+import { CACHE_TTL, localDrafts } from '../lib/cache';
 import { TeamPostCreate, Contest, RoleSlot, TeamPost } from '../types';
 
 interface InvitedMember {
@@ -61,10 +62,10 @@ const SKILL_SUGGESTIONS = [
     'Agile/Scrum', 'Leadership', 'Communication', 'Problem Solving'
 ];
 
-const CreateTeamPostModal: React.FC<CreateTeamPostModalProps> = ({ isOpen, onClose, onSuccess, editingPost = null }) => {
-    const isEditMode = !!editingPost;
-    
-    const [formData, setFormData] = useState<TeamPostCreate>({
+const TEAM_POST_DRAFT_KEY = 'create_team_post';
+
+function buildEmptyFormData(): TeamPostCreate {
+    return {
         title: '',
         description: '',
         contestId: '',
@@ -76,7 +77,37 @@ const CreateTeamPostModal: React.FC<CreateTeamPostModalProps> = ({ isOpen, onClo
         contactMethod: 'both',
         deadline: '',
         invitedMembers: []
-    });
+    };
+}
+
+function isBlankDraft(data: TeamPostCreate): boolean {
+    const title = String(data.title || '').trim();
+    const description = String(data.description || '').trim();
+    const requirements = String(data.requirements || '').trim();
+    const contestId = String(data.contestId || '').trim();
+    const deadline = String(data.deadline || '').trim();
+    const skillsLen = Array.isArray(data.skills) ? data.skills.length : 0;
+    const rolesLen = Array.isArray(data.rolesNeeded) ? data.rolesNeeded.length : 0;
+    const slotsLen = Array.isArray(data.roleSlots) ? data.roleSlots.length : 0;
+    const invitedLen = Array.isArray(data.invitedMembers) ? data.invitedMembers.length : 0;
+
+    return (
+        !title &&
+        !description &&
+        !requirements &&
+        !contestId &&
+        !deadline &&
+        skillsLen === 0 &&
+        rolesLen === 0 &&
+        slotsLen === 0 &&
+        invitedLen === 0
+    );
+}
+
+const CreateTeamPostModal: React.FC<CreateTeamPostModalProps> = ({ isOpen, onClose, onSuccess, editingPost = null }) => {
+    const isEditMode = !!editingPost;
+    
+    const [formData, setFormData] = useState<TeamPostCreate>(() => buildEmptyFormData());
     const [contests, setContests] = useState<Contest[]>([]);
     const [isLoading, setIsLoading] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
@@ -125,19 +156,7 @@ const CreateTeamPostModal: React.FC<CreateTeamPostModalProps> = ({ isOpen, onClo
     // Reset form when modal closes OR populate with editing data
     useEffect(() => {
         if (!isOpen) {
-            setFormData({
-                title: '',
-                description: '',
-                contestId: '',
-                rolesNeeded: [],
-                roleSlots: [],
-                maxMembers: 4,
-                requirements: '',
-                skills: [],
-                contactMethod: 'both',
-                deadline: '',
-                invitedMembers: []
-            });
+            setFormData(buildEmptyFormData());
             setError(null);
             setSuccess(false);
             setSkillInput('');
@@ -178,6 +197,41 @@ const CreateTeamPostModal: React.FC<CreateTeamPostModalProps> = ({ isOpen, onClo
             setSuccess(false);
         }
     }, [isOpen, editingPost]);
+
+    // Restore draft when creating a new post
+    useEffect(() => {
+        if (!isOpen || isEditMode) return;
+        const draft = localDrafts.get<TeamPostCreate>(TEAM_POST_DRAFT_KEY);
+        if (!draft) return;
+
+        setFormData((prev) => {
+            const next: TeamPostCreate = {
+                ...buildEmptyFormData(),
+                ...draft,
+                rolesNeeded: Array.isArray(draft.rolesNeeded) ? draft.rolesNeeded : [],
+                roleSlots: Array.isArray(draft.roleSlots) ? draft.roleSlots : [],
+                skills: Array.isArray(draft.skills) ? draft.skills : [],
+                invitedMembers: Array.isArray(draft.invitedMembers) ? draft.invitedMembers : [],
+            };
+
+            // Avoid re-setting state unnecessarily
+            return JSON.stringify(prev) === JSON.stringify(next) ? prev : next;
+        });
+    }, [isOpen, isEditMode]);
+
+    // Persist draft while creating a new post (debounced)
+    useEffect(() => {
+        if (!isOpen || isEditMode) return;
+        const timer = window.setTimeout(() => {
+            if (isBlankDraft(formData)) {
+                localDrafts.remove(TEAM_POST_DRAFT_KEY);
+                return;
+            }
+            localDrafts.set(TEAM_POST_DRAFT_KEY, formData, CACHE_TTL.DRAFT);
+        }, 400);
+
+        return () => window.clearTimeout(timer);
+    }, [formData, isOpen, isEditMode]);
 
     // Search users for tagging
     const searchUsers = useCallback(async (query: string) => {
@@ -346,6 +400,7 @@ const CreateTeamPostModal: React.FC<CreateTeamPostModalProps> = ({ isOpen, onClo
             } else {
                 // Create new post
                 await api.post('/teams', payload);
+                localDrafts.remove(TEAM_POST_DRAFT_KEY);
             }
             setSuccess(true);
 

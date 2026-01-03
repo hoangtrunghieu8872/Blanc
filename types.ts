@@ -1,12 +1,56 @@
 
+export type MembershipTier = 'free' | 'plus' | 'pro' | 'business';
+
+export interface MembershipSummary {
+  tier: MembershipTier;
+  effectiveTier: MembershipTier;
+  status: 'active' | 'expired' | 'canceled';
+  startedAt: string | null;
+  expiresAt: string | null;
+  updatedAt: string | null;
+  source?: string | null;
+  orderId?: string | null;
+  active: boolean;
+}
+
+export interface MembershipEntitlements {
+  tier: MembershipTier;
+  reportsEnabled: boolean;
+  chatMessagesPerHour: number;
+}
+
 export interface User {
   id: string;
   name: string;
   email: string;
   avatar: string;
-  role: 'student' | 'admin' | 'super_admin';
+  role: 'student' | 'mentor' | 'admin' | 'super_admin';
   balance: number;
   status?: 'active' | 'banned';
+  membership?: MembershipSummary;
+  mentorBlogCompleted?: boolean;
+}
+
+export interface MentorBlog {
+  bannerUrl: string;
+  body: string;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+}
+
+export interface MentorSummary {
+  id: string;
+  name: string;
+  avatar?: string | null;
+  bannerUrl?: string;
+  joinedAt?: string | null;
+  mentorBlogCompleted?: boolean;
+  fields?: string[];
+}
+
+export interface MentorDetail extends MentorSummary {
+  bio?: string;
+  mentorBlog?: MentorBlog;
 }
 
 export interface AuditLogEntry {
@@ -99,6 +143,26 @@ export interface Course {
   contactInfo?: string;
   // Loại thông tin liên hệ
   contactType?: 'link' | 'phone';
+  // Metadata
+  isPublic?: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export type DocumentCategory = 'Tutorial' | 'Reference' | 'Guide' | 'Research';
+
+export interface Document {
+  id: string;
+  title: string;
+  author: string;
+  category: DocumentCategory;
+  link: string;
+  description?: string;
+  thumbnail?: string;
+  downloads: number;
+  isPublic: boolean;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface Team {
@@ -297,11 +361,36 @@ export interface ReportTemplate {
   icon: string;
 }
 
+export interface ReportActivity {
+  id: string;
+  title: string;
+  description?: string | null;
+  occurredAt?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+}
+
+export interface ReportEvidence {
+  id: string;
+  fileId: string;
+  fileName: string;
+  mimeType: string;
+  url: string;
+  uploadedAt?: string | null;
+}
+
 export interface Report {
   id: string;
   title: string;
   template: string;
   status: 'Draft' | 'Sent' | 'Ready';
+  reviewStatus?: 'draft' | 'submitted' | 'needs_changes' | 'approved';
+  submittedAt?: string | null;
+  reviewedAt?: string | null;
+  relatedType?: 'contest' | 'course' | null;
+  relatedId?: string | null;
+  activities?: ReportActivity[];
+  evidence?: ReportEvidence[];
   lastEdited: string;
   content: string;
   userId?: string;
@@ -371,7 +460,7 @@ export interface NewsArticle {
   body?: string;
   tags: string[];
   coverImage?: string;
-  type?: 'announcement' | 'minigame' | 'update' | 'event';
+  type?: 'announcement' | 'minigame' | 'update' | 'event' | 'tip';
   highlight?: boolean;
   actionLabel?: string;
   actionLink?: string;

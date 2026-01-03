@@ -21,6 +21,7 @@ async function getApiMock(): Promise<MockedApi> {
 describe('streakService', () => {
   beforeEach(() => {
     vi.resetModules();
+    vi.clearAllMocks();
     localStorage.clear();
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2025-12-13T18:00:00.000Z')); // 2025-12-14 in VN
@@ -55,6 +56,66 @@ describe('streakService', () => {
 
     expect(data.currentStreak).toBe(2);
     expect(api.get).not.toHaveBeenCalled();
+  });
+
+  it('getStreak ignores legacy cache when userId is provided (prevents cross-account leak)', async () => {
+    const api = await getApiMock();
+    api.get.mockResolvedValue({
+      currentStreak: 9,
+      longestStreak: 9,
+      lastActivityDate: null,
+      todayCheckedIn: false,
+    });
+
+    localStorage.setItem(
+      'user_streak_cache',
+      JSON.stringify({
+        data: {
+          currentStreak: 2,
+          longestStreak: 5,
+          lastActivityDate: null,
+          todayCheckedIn: false,
+        },
+        date: '2025-12-14',
+      })
+    );
+
+    const { getStreak } = await import('../../services/streakService');
+    const data = await getStreak('user1');
+
+    expect(api.get).toHaveBeenCalledTimes(1);
+    expect(data.currentStreak).toBe(9);
+    expect(localStorage.getItem('user_streak_cache')).toBeNull();
+    expect(localStorage.getItem('user_streak_cache_user1')).toBeTruthy();
+  });
+
+  it('getStreak migrates legacy cache when it is scoped to the same userId', async () => {
+    const api = await getApiMock();
+    api.get.mockImplementation(() => {
+      throw new Error('API should not be called when scoped legacy cache is valid');
+    });
+
+    localStorage.setItem(
+      'user_streak_cache',
+      JSON.stringify({
+        data: {
+          currentStreak: 4,
+          longestStreak: 10,
+          lastActivityDate: null,
+          todayCheckedIn: true,
+        },
+        date: '2025-12-14',
+        userId: 'user1',
+      })
+    );
+
+    const { getStreak } = await import('../../services/streakService');
+    const data = await getStreak('user1');
+
+    expect(api.get).not.toHaveBeenCalled();
+    expect(data.currentStreak).toBe(4);
+    expect(localStorage.getItem('user_streak_cache')).toBeNull();
+    expect(localStorage.getItem('user_streak_cache_user1')).toBeTruthy();
   });
 
   it('getStreak invalidates stale cache and fetches API', async () => {

@@ -1,19 +1,22 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Megaphone, Sparkles, Trophy, Calendar, MessageCircle, ArrowRight, Tag, Lightbulb, Send, CheckCircle2, X, Loader2 } from 'lucide-react';
+import { Megaphone, Sparkles, Trophy, Calendar, MessageCircle, ArrowRight, Tag, Lightbulb, Send, CheckCircle2, X, Loader2, Search } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { Button, Card } from '../components/ui/Common';
+import { Button, Card, Input } from '../components/ui/Common';
+import Pagination from '../components/Pagination';
 import { api } from '../lib/api';
+import { useDebounce } from '../lib/hooks';
 import { newsApi } from '../lib/newsApi';
 import { NewsArticle } from '../types';
 
-type NewsType = 'announcement' | 'minigame' | 'update' | 'event';
+type NewsType = 'announcement' | 'minigame' | 'update' | 'event' | 'tip';
+type NewsGroup = 'all' | 'updates' | 'tips';
 
 const safeArray = <T,>(value: unknown, fallback: T[] = []): T[] =>
   Array.isArray(value) ? (value as T[]) : fallback;
 
 const normalizeType = (value: unknown): NewsType => {
   const v = String(value || '').trim();
-  if (v === 'announcement' || v === 'minigame' || v === 'update' || v === 'event') return v as NewsType;
+  if (v === 'announcement' || v === 'minigame' || v === 'update' || v === 'event' || v === 'tip') return v as NewsType;
   return 'announcement';
 };
 
@@ -30,7 +33,15 @@ const NEWS_TYPE_META: Record<NewsType, { label: string; color: string; Icon: Rea
   minigame: { label: 'Mini game', color: 'bg-amber-50 text-amber-700 border-amber-100', Icon: Trophy },
   update: { label: 'Cập nhật', color: 'bg-emerald-50 text-emerald-700 border-emerald-100', Icon: Sparkles },
   event: { label: 'Sự kiện', color: 'bg-sky-50 text-sky-700 border-sky-100', Icon: Calendar },
+  tip: { label: 'Mẹo học tập', color: 'bg-teal-50 text-teal-700 border-teal-100', Icon: Lightbulb },
 };
+
+const UPDATE_TYPES: NewsType[] = ['announcement', 'minigame', 'update', 'event'];
+const GROUP_OPTIONS: Array<{ value: NewsGroup; label: string }> = [
+  { value: 'all', label: 'Tất cả' },
+  { value: 'updates', label: 'Tin cập nhật' },
+  { value: 'tips', label: 'Mẹo học tập' },
+];
 
 const INITIAL_NEWS = [
   {
@@ -77,11 +88,34 @@ const INITIAL_NEWS = [
     actionLabel: 'Giữ chỗ',
     actionLink: '#',
   },
+  {
+    id: 'n5',
+    title: 'Mẹo ghi chú sau buổi học',
+    description: 'Ghi lại 3 ý chính và 1 câu hỏi còn vướng để ôn tập nhanh.',
+    type: 'tip',
+    createdAt: '2025-12-07T09:30:00Z',
+    author: 'Learning Coach',
+    tags: ['Ghi chú', 'Ôn tập'],
+  },
+  {
+    id: 'n6',
+    title: 'Kỹ thuật Pomodoro cho buổi học dài',
+    description: 'Chia phiên học 25/5 giúp duy trì tập trung và tránh mệt mỏi.',
+    type: 'tip',
+    createdAt: '2025-12-05T18:00:00Z',
+    author: 'Study Lab',
+    tags: ['Thời gian', 'Tập trung'],
+  },
 ] as unknown as NewsArticle[];
+
+const ITEMS_PER_PAGE = 8;
 
 const News: React.FC = () => {
   const [newsItems, setNewsItems] = useState<NewsArticle[]>([]);
   const [filter, setFilter] = useState<'all' | NewsType>('all');
+  const [group, setGroup] = useState<NewsGroup>('all');
+  const [searchQuery, setSearchQuery] = useState('');
+  const debouncedSearch = useDebounce(searchQuery, 300);
   const [showFeedbackForm, setShowFeedbackForm] = useState(false);
   const [feedback, setFeedback] = useState<{ idea: string; contact: string }>({ idea: '', contact: '' });
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
@@ -89,6 +123,7 @@ const News: React.FC = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [suggestionCount, setSuggestionCount] = useState(0);
   const [isLoadingNews, setIsLoadingNews] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [detailItem, setDetailItem] = useState<NewsArticle | null>(null);
   const [isLoadingDetail, setIsLoadingDetail] = useState(false);
@@ -149,17 +184,42 @@ const News: React.FC = () => {
     !!(item.highlight || (item as any).highlight);
 
   const filteredNews = useMemo(() => {
-    const scoped = filter === 'all'
-      ? newsItems
-      : newsItems.filter(item => getNewsType(item) === filter);
+    const searchTerm = debouncedSearch.trim().toLowerCase();
+    const scoped = newsItems.filter((item) => {
+      const type = getNewsType(item);
+      if (group === 'tips' && type !== 'tip') return false;
+      if (group === 'updates' && type === 'tip') return false;
+      if (filter !== 'all' && type !== filter) return false;
+      if (searchTerm) {
+        const haystack = [
+          item.title,
+          getNewsSummary(item),
+          getNewsAuthorName(item),
+          ...getNewsTags(item),
+        ]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase();
+        if (!haystack.includes(searchTerm)) return false;
+      }
+      return true;
+    });
     return [...scoped].sort((a, b) => {
       const dateA = new Date(getNewsDate(a) || 0).getTime();
       const dateB = new Date(getNewsDate(b) || 0).getTime();
       return dateB - dateA;
     });
-  }, [filter, newsItems]);
+  }, [debouncedSearch, filter, group, newsItems]);
 
-  const highlightNews = useMemo(() => newsItems.filter(isHighlighted), [newsItems]);
+  const highlightNews = useMemo(() => filteredNews.filter(isHighlighted), [filteredNews]);
+
+  const totalPages = Math.ceil(filteredNews.length / ITEMS_PER_PAGE);
+  const paginatedNews = useMemo(() => {
+    const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+    return filteredNews.slice(startIndex, startIndex + ITEMS_PER_PAGE);
+  }, [currentPage, filteredNews]);
+
+  const hasActiveFilters = !!searchQuery.trim() || filter !== 'all' || group !== 'all';
 
   const formatDate = (dateStr?: string | null) => {
     if (!dateStr) return '';
@@ -227,6 +287,26 @@ const News: React.FC = () => {
       fetchSuggestions();
     }
   }, [showFeedbackForm, fetchSuggestions]);
+
+  useEffect(() => {
+    if (group === 'tips' && filter !== 'tip') {
+      setFilter('tip');
+      return;
+    }
+    if (group !== 'tips' && filter === 'tip') {
+      setFilter('all');
+    }
+  }, [group, filter]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, filter, group]);
+
+  useEffect(() => {
+    if (currentPage > totalPages && totalPages > 0) {
+      setCurrentPage(1);
+    }
+  }, [currentPage, totalPages]);
 
   const closeDetail = () => {
     setIsDetailOpen(false);
@@ -389,26 +469,73 @@ const News: React.FC = () => {
       )}
 
       <section className="space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <p className="text-xs uppercase tracking-[0.2em] text-slate-500 font-semibold">Dòng tin mới nhất</p>
-            <h2 className="text-xl font-bold text-slate-900">Tin tức từ admin</h2>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {(['all', 'announcement', 'minigame', 'update', 'event'] as Array<'all' | NewsType>).map(type => {
-              const meta = type === 'all' ? { label: 'Tất cả', color: 'bg-slate-100 text-slate-700 border-slate-200' } : NEWS_TYPE_META[type];
-              return (
-                <button
-                  key={type}
-                  onClick={() => setFilter(type)}
-                  className={`px-3 py-1.5 rounded-full text-sm font-medium border transition ${
-                    filter === type ? 'bg-primary-600 text-white border-primary-600 shadow-sm' : `${meta.color} hover:border-primary-200`
-                  }`}
-                >
-                  {meta.label}
-                </button>
-              );
-            })}
+        <div className="rounded-2xl border border-slate-200 bg-white/80 shadow-sm p-4 md:p-5">
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div className="space-y-1">
+                <p className="text-xs uppercase tracking-[0.2em] text-slate-500 font-semibold">Dòng tin mới nhất</p>
+                <div className="flex items-center gap-3 flex-wrap">
+                  <h2 className="text-xl font-bold text-slate-900">Tin tức từ admin</h2>
+                  <span className="inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700 border border-slate-200">
+                    <Sparkles className="w-4 h-4 text-primary-600" />
+                    {filteredNews.length} bản tin khả dụng
+                  </span>
+                </div>
+                <p className="text-sm text-slate-600">Chọn nhanh nhóm tin, lọc chi tiết theo loại hoặc nhập từ khoá để tìm bài phù hợp.</p>
+              </div>
+
+              <div className="flex flex-col gap-2 w-full md:w-auto">
+                <div className="relative w-full md:w-80">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  <Input
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Tìm bản tin hoặc mẹo..."
+                    className="pl-9"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div
+              className={`grid gap-3 md:gap-4 ${group === 'tips' ? 'grid-cols-1' : 'grid-cols-1 lg:grid-cols-3 lg:items-center'}`}
+            >
+              <div className="flex flex-wrap items-center gap-3 md:gap-4">
+                {GROUP_OPTIONS.map(({ value, label }) => (
+                  <button
+                    key={value}
+                    onClick={() => setGroup(value)}
+                    className={`whitespace-nowrap px-4 py-2 rounded-full text-sm font-semibold border transition shadow-sm ${group === value
+                      ? 'bg-primary-600 text-white border-primary-600'
+                      : 'bg-white text-slate-600 border-slate-200 hover:border-primary-200'
+                      }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              {group !== 'tips' && (
+                <div className="flex flex-wrap items-center gap-2 md:gap-3 lg:col-span-2 lg:justify-end">
+                {(['all', ...UPDATE_TYPES] as Array<'all' | NewsType>).map(type => {
+                  const meta = type === 'all' ? { label: 'Tất cả', color: 'bg-slate-100 text-slate-700 border-slate-200' } : NEWS_TYPE_META[type];
+                  const isActive = filter === type;
+                  return (
+                    <button
+                      key={type}
+                      onClick={() => setFilter(type)}
+                      className={`whitespace-nowrap px-3.5 py-1.5 rounded-full text-xs font-semibold border transition ${isActive
+                        ? 'bg-primary-50 text-primary-700 border-primary-200 shadow-[0_2px_10px_-4px_rgba(59,130,246,0.6)]'
+                        : `${meta.color} hover:border-primary-200`
+                        }`}
+                    >
+                      {meta.label}
+                    </button>
+                  );
+                })}
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
@@ -420,9 +547,11 @@ const News: React.FC = () => {
             </div>
           )}
           {!isLoadingNews && filteredNews.length === 0 && (
-            <p className="col-span-full text-sm text-slate-500">Chưa có bản tin nào.</p>
+            <p className="col-span-full text-sm text-slate-500">
+              {hasActiveFilters ? 'Không tìm thấy bản tin phù hợp.' : 'Chưa có bản tin nào.'}
+            </p>
           )}
-          {filteredNews.map(item => {
+          {paginatedNews.map(item => {
             const meta = NEWS_TYPE_META[getNewsType(item)] || NEWS_TYPE_META.announcement;
             const tags = getNewsTags(item);
             const actionLink = getNewsActionLink(item);
@@ -472,6 +601,7 @@ const News: React.FC = () => {
             );
           })}
         </div>
+        <Pagination currentPage={currentPage} totalPages={totalPages} onPageChange={setCurrentPage} />
       </section>
 
       {isDetailOpen && (

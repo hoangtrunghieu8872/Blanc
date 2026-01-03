@@ -153,7 +153,7 @@ const StepProgress: React.FC<{ currentStep: number; isAnimating: boolean; totalS
   totalSteps = 4
 }) => {
   const steps = totalSteps === 4
-    ? [{ label: 'Điều khoản', num: 1 }, { label: 'Tài khoản', num: 2 }, { label: 'Xác thực', num: 3 }, { label: 'Hồ sơ', num: 4 }]
+    ? [{ label: 'Tài khoản', num: 1 }, { label: 'Xác thực', num: 2 }, { label: 'Hồ sơ', num: 3 }, { label: 'Điều khoản', num: 4 }]
     : [{ label: 'Tài khoản', num: 1 }, { label: 'Hồ sơ', num: 2 }];
 
   return (
@@ -196,7 +196,7 @@ const Auth: React.FC<{ type: 'login' | 'register' }> = ({ type }) => {
   const navigate = useNavigate();
   const isLogin = type === 'login';
 
-  // Step state for registration (1: Terms, 2: Account, 3: OTP, 4: Profile)
+  // Step state for registration (1: Account, 2: OTP, 3: Profile, 4: Terms)
   const [currentStep, setCurrentStep] = useState(1);
 
   // Terms acceptance state
@@ -211,7 +211,7 @@ const Auth: React.FC<{ type: 'login' | 'register' }> = ({ type }) => {
     password: '',
   });
 
-  // Form data for step 2 (profile info)
+  // Form data for step 3 (profile info)
   const [profileData, setProfileData] = useState({
     primaryRole: '',
     experienceLevel: '',
@@ -235,7 +235,7 @@ const Auth: React.FC<{ type: 'login' | 'register' }> = ({ type }) => {
 
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [registeredUser, setRegisteredUser] = useState<AuthResponse | null>(null);
+  const [registrationVerificationToken, setRegistrationVerificationToken] = useState<string>('');
 
   // Countdown timer for resend OTP
   useEffect(() => {
@@ -275,6 +275,7 @@ const Auth: React.FC<{ type: 'login' | 'register' }> = ({ type }) => {
   const handleProfileChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
     setProfileData(prev => ({ ...prev, [name]: value }));
+    setError(null);
   };
 
   // Handle step 1 submit (initiate registration with OTP)
@@ -351,16 +352,13 @@ const Auth: React.FC<{ type: 'login' | 'register' }> = ({ type }) => {
         otp,
       });
 
-      // Step 2: Complete registration with verificationToken
-      const response = await api.post<AuthResponse>('/auth/register/verify', {
+      // Bind verification token for final registration step
+      await api.post('/auth/register/verify', {
         email: formData.email,
         verificationToken: otpResult.verificationToken,
       });
 
-      // Save token temporarily
-      localStorage.setItem('auth_token', response.token);
-      localStorage.setItem('user', JSON.stringify(response.user));
-      setRegisteredUser(response);
+      setRegistrationVerificationToken(otpResult.verificationToken);
 
       // Move to step 3 (Profile)
       setIsAnimating(true);
@@ -408,45 +406,77 @@ const Auth: React.FC<{ type: 'login' | 'register' }> = ({ type }) => {
     }
   };
 
-  // Handle step 3 submit (profile info) - was step 2
-  const handleStep3Submit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsLoading(true);
-    setError(null);
-
-    try {
-      // Update profile with additional info
-      await api.patch('/users/me/profile', {
-        matchingProfile: {
-          primaryRole: profileData.primaryRole,
-          experienceLevel: profileData.experienceLevel,
-          location: profileData.location,
-          skills: profileData.skills.split(',').map(s => s.trim()).filter(Boolean),
-        },
-        contestPreferences: {
-          learningGoals: profileData.learningGoals,
-        },
-      });
-
-      // Dispatch event to notify App component
-      window.dispatchEvent(new Event('auth-change'));
-
-      // Navigate to profile
-      navigate('/profile');
-    } catch (err) {
-      // Even if profile update fails, user is registered, so navigate
-      console.error('Profile update error:', err);
-      window.dispatchEvent(new Event('auth-change'));
-      navigate('/profile');
-    } finally {
-      setIsLoading(false);
-    }
+  // Navigation helpers
+  const goToTermsStep = () => {
+    setIsAnimating(true);
+    setTimeout(() => {
+      setCurrentStep(4);
+      setIsAnimating(false);
+    }, 700);
   };
 
-  // Handle skip step 3
-  const handleSkip = () => {
-    window.dispatchEvent(new Event('auth-change'));
-    navigate('/profile');
+  const finishRegistration = () => {
+    // Finalize registration only after terms are accepted
+    // (Account is created here, not at OTP verification)
+    const finalize = async () => {
+      setIsLoading(true);
+      setError(null);
+
+      try {
+        if (!registrationVerificationToken) {
+          setError('Phiên xác thực đã hết hạn. Vui lòng đăng ký lại.');
+          return;
+        }
+
+        if (!profileData.primaryRole || !profileData.experienceLevel) {
+          setError('Vui lòng hoàn thiện hồ sơ (vai trò & cấp độ kinh nghiệm) trước khi tạo tài khoản.');
+          setCurrentStep(3);
+          return;
+        }
+
+        const response = await api.post<AuthResponse>('/auth/register/complete', {
+          email: formData.email,
+          verificationToken: registrationVerificationToken,
+          profile: {
+            primaryRole: profileData.primaryRole,
+            experienceLevel: profileData.experienceLevel,
+            location: profileData.location,
+            skills: profileData.skills,
+            learningGoals: profileData.learningGoals,
+          },
+          termsAccepted,
+          privacyAccepted,
+        });
+
+        localStorage.setItem('user', JSON.stringify(response.user));
+        window.dispatchEvent(new Event('auth-change'));
+        navigate('/profile');
+      } catch (err) {
+        const errorMessage = err instanceof Error ? err.message : 'Đã xảy ra lỗi';
+        setError(errorMessage);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    void finalize();
+  };
+
+  const handleStep3Submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    // Account is not created yet, so we only collect profile data locally
+    // but require minimum profile fields before moving forward.
+    if (!profileData.primaryRole) {
+      setError('Vui lòng chọn vai trò chính của bạn.');
+      return;
+    }
+
+    if (!profileData.experienceLevel) {
+      setError('Vui lòng chọn cấp độ kinh nghiệm của bạn.');
+      return;
+    }
+
+    goToTermsStep();
   };
 
   // Handle login submit - always requires OTP verification
@@ -481,7 +511,6 @@ const Auth: React.FC<{ type: 'login' | 'register' }> = ({ type }) => {
         setCountdown(60);
       } else if (response.token && response.user) {
         // Direct login (OTP bypassed for test accounts)
-        localStorage.setItem('auth_token', response.token);
         localStorage.setItem('user', JSON.stringify(response.user));
         window.dispatchEvent(new Event('auth-change'));
         navigate('/profile');
@@ -517,7 +546,6 @@ const Auth: React.FC<{ type: 'login' | 'register' }> = ({ type }) => {
         otp,
       });
 
-      localStorage.setItem('auth_token', response.token);
       localStorage.setItem('user', JSON.stringify(response.user));
       window.dispatchEvent(new Event('auth-change'));
       navigate('/profile');
@@ -559,7 +587,7 @@ const Auth: React.FC<{ type: 'login' | 'register' }> = ({ type }) => {
     }
   };
 
-  // Render Step 1 Form (Terms & Conditions)
+  // Render Step 4 Form (Terms & Conditions)
   const renderTermsForm = () => (
     <div className="space-y-5">
       <div className="text-center mb-4">
@@ -634,16 +662,10 @@ const Auth: React.FC<{ type: 'login' | 'register' }> = ({ type }) => {
       <Button
         type="button"
         className="w-full text-lg h-12"
-        disabled={!termsAccepted || !privacyAccepted}
-        onClick={() => {
-          setIsAnimating(true);
-          setTimeout(() => {
-            setCurrentStep(2);
-            setIsAnimating(false);
-          }, 500);
-        }}
+        disabled={!termsAccepted || !privacyAccepted || isLoading}
+        onClick={finishRegistration}
       >
-        Đồng ý và tiếp tục
+        {isLoading ? 'Đang tạo tài khoản...' : 'Đồng ý và tạo tài khoản'}
       </Button>
 
       <p className="text-xs text-slate-400 text-center">
@@ -652,7 +674,7 @@ const Auth: React.FC<{ type: 'login' | 'register' }> = ({ type }) => {
     </div>
   );
 
-  // Render Step 2 Form (Account Info)
+  // Render Step 1 Form (Account Info)
   const renderStep2Form = () => (
     <form className="space-y-5" onSubmit={handleStep1Submit}>
       {error && (
@@ -702,7 +724,7 @@ const Auth: React.FC<{ type: 'login' | 'register' }> = ({ type }) => {
     </form>
   );
 
-  // Render Step 3 Form (OTP Verification)
+  // Render Step 2 Form (OTP Verification)
   const renderStep3OtpForm = () => (
     <div className="space-y-5">
       <div className="text-center mb-4">
@@ -763,7 +785,7 @@ const Auth: React.FC<{ type: 'login' | 'register' }> = ({ type }) => {
       <button
         type="button"
         onClick={() => {
-          setCurrentStep(2);
+          setCurrentStep(1);
           setOtp('');
           setOtpError('');
         }}
@@ -774,7 +796,7 @@ const Auth: React.FC<{ type: 'login' | 'register' }> = ({ type }) => {
     </div>
   );
 
-  // Render Step 4 Form (Profile Info)
+  // Render Step 3 Form (Profile Info)
   const renderStep4Form = () => (
     <form className="space-y-4" onSubmit={handleStep3Submit}>
       <div className="text-center mb-4">
@@ -782,10 +804,16 @@ const Auth: React.FC<{ type: 'login' | 'register' }> = ({ type }) => {
           <User className="w-8 h-8 text-primary-600" />
         </div>
         <p className="text-slate-600 text-sm">
-          Chào <span className="font-semibold text-primary-600">{registeredUser?.user.name}</span>!
+          Chào <span className="font-semibold text-primary-600">{formData.name}</span>!
           Hãy cho chúng tôi biết thêm về bạn.
         </p>
       </div>
+
+      {error && (
+        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
+          {error}
+        </div>
+      )}
 
       {/* Primary Role */}
       <div>
@@ -877,16 +905,8 @@ const Auth: React.FC<{ type: 'login' | 'register' }> = ({ type }) => {
       </div>
 
       <div className="flex gap-3 pt-2">
-        <Button
-          type="button"
-          variant="secondary"
-          className="flex-1 h-11"
-          onClick={handleSkip}
-        >
-          Bỏ qua
-        </Button>
         <Button type="submit" className="flex-1 h-11" disabled={isLoading}>
-          {isLoading ? 'Đang lưu...' : 'Hoàn tất'}
+          {isLoading ? 'Đang xử lý...' : 'Tiếp tục'}
         </Button>
       </div>
     </form>
@@ -1027,23 +1047,23 @@ const Auth: React.FC<{ type: 'login' | 'register' }> = ({ type }) => {
     switch (currentStep) {
       case 1:
         return {
-          title: 'Điều khoản sử dụng',
-          subtitle: 'Vui lòng đọc và đồng ý với các điều khoản của chúng tôi.'
-        };
-      case 2:
-        return {
           title: 'Tạo tài khoản mới',
           subtitle: 'Tham gia cộng đồng học tập lớn nhất Việt Nam.'
         };
-      case 3:
+      case 2:
         return {
           title: 'Xác thực email',
           subtitle: 'Nhập mã OTP đã gửi đến email của bạn.'
         };
-      case 4:
+      case 3:
         return {
           title: 'Hoàn thiện hồ sơ',
           subtitle: 'Giúp chúng tôi hiểu bạn hơn để gợi ý phù hợp.'
+        };
+      case 4:
+        return {
+          title: 'Điều khoản sử dụng',
+          subtitle: 'Vui lòng đọc và đồng ý với các điều khoản của chúng tôi.'
         };
       default:
         return { title: '', subtitle: '' };
@@ -1058,19 +1078,19 @@ const Auth: React.FC<{ type: 'login' | 'register' }> = ({ type }) => {
         description: 'Xác thực 2 bước giúp bảo vệ tài khoản của bạn khỏi truy cập trái phép.'
       };
     }
-    if (!isLogin && currentStep === 1) {
+    if (!isLogin && currentStep === 4) {
       return {
         title: 'Chào mừng đến Blanc!',
         description: 'Trước khi bắt đầu, hãy dành chút thời gian để đọc các điều khoản của chúng tôi.'
       };
     }
-    if (!isLogin && currentStep === 3) {
+    if (!isLogin && currentStep === 2) {
       return {
         title: 'Xác thực email',
         description: 'Chúng tôi cần xác nhận email để đảm bảo tính bảo mật cho tài khoản của bạn.'
       };
     }
-    if (!isLogin && currentStep === 4) {
+    if (!isLogin && currentStep === 3) {
       return {
         title: 'Sắp hoàn tất!',
         description: 'Thông tin của bạn sẽ giúp chúng tôi gợi ý cuộc thi và đồng đội phù hợp nhất.'
@@ -1105,15 +1125,15 @@ const Auth: React.FC<{ type: 'login' | 'register' }> = ({ type }) => {
               ? render2FAForm()
               : renderLoginForm()
             : currentStep === 1
-              ? renderTermsForm()
+              ? renderStep2Form()
               : currentStep === 2
-                ? renderStep2Form()
+                ? renderStep3OtpForm()
                 : currentStep === 3
-                  ? renderStep3OtpForm()
-                  : renderStep4Form()}
+                  ? renderStep4Form()
+                  : renderTermsForm()}
 
-          {/* Footer link - only show for steps 1-2 or login (without 2FA) */}
-          {((isLogin && !requires2FA) || (!isLogin && currentStep <= 2)) && (
+          {/* Footer link - only show for step 1 or login (without 2FA) */}
+          {((isLogin && !requires2FA) || (!isLogin && currentStep === 1)) && (
             <div className="mt-6 text-center text-sm text-slate-500">
               {isLogin ? "Chưa có tài khoản?" : "Đã có tài khoản?"}{" "}
               <span
