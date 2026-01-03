@@ -11,7 +11,7 @@ const RETRY_DELAY_MS = 5000;
 const uri = process.env.MONGODB_URI;
 const dbName = process.env.DB_NAME || 'blanc';
 
-const require = createRequire(import.meta.url);
+const require = createRequire(typeof __filename !== 'undefined' ? __filename : import.meta.url);
 
 function getMongoCompressors() {
     const compressors = ['zlib'];
