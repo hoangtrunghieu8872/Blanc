@@ -111,12 +111,17 @@ export function validateProductionSetup(options = {}) {
         console.warn('[Security] NODE_ENV is not set to "production"');
     }
 
-    // Check FRONTEND_ORIGIN
+    // Check FRONTEND_ORIGIN (allow Netlify-provided URLs as a safe fallback)
     const frontendOrigin = process.env.FRONTEND_ORIGIN;
-    if (!frontendOrigin) {
+    const netlifyUrl = process.env.URL;
+    const netlifyDeployPrimeUrl = process.env.DEPLOY_PRIME_URL;
+    const fallbackOrigins = [netlifyUrl, netlifyDeployPrimeUrl].filter(Boolean).join(',');
+    const originSource = frontendOrigin || fallbackOrigins;
+
+    if (!originSource) {
         errors.push('FRONTEND_ORIGIN is not configured');
     } else {
-        const origins = frontendOrigin.split(',').map((o) => o.trim());
+        const origins = originSource.split(',').map((o) => o.trim());
         const hasLocalhost = origins.some(
             (o) => o.includes('localhost') || o.includes('127.0.0.1')
         );

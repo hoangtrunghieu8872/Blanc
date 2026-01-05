@@ -59,11 +59,14 @@ const corsOrigins = process.env.FRONTEND_ORIGIN
     .map((origin) => origin.trim())
     .filter(Boolean)
   : [
+    // Netlify provides these at runtime; include them by default.
+    process.env.URL,
+    process.env.DEPLOY_PRIME_URL,
     'http://localhost:3000',
     'http://localhost:3001',
     'http://localhost:5173',
     'http://localhost:5174',
-  ];
+  ].filter(Boolean);
 
 const helmetCrossOriginResourcePolicy =
   String(process.env.HELMET_CORP || 'false').toLowerCase() === 'true'
