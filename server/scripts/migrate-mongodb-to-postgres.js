@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 // MongoDB connection string (old database)
-const MONGODB_URI = 'mongodb+srv://dangthhfct31147_db_user:wWGp4sSGIT464eKB@cluster0.rfqxqob.mongodb.net/contesthub';
+const MONGODB_URI = '';
 
 // PostgreSQL connection (new database)
 const POSTGRES_URI = process.env.DATABASE_URL;
