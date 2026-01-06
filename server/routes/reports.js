@@ -407,8 +407,6 @@ router.put('/:id', authGuard, async (req, res) => {
             evidence: updated.evidence || [],
             relatedType: updated.relatedType || null,
             relatedId: updated.relatedId || null,
-            relatedType: updated.relatedType || null,
-            relatedId: updated.relatedId || null,
             content: updated.content,
             lastEdited: formatLastEdited(updated.updatedAt),
             createdAt: updated.createdAt,
