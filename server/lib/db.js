@@ -22,10 +22,15 @@ function formatDatabaseTarget(databaseUrl) {
 }
 
 function getDefaultRootCertPath() {
-    // CockroachDB client cert location on Windows when following their docs.
-    // The user already downloaded root.crt to %APPDATA%\postgresql\root.crt
-    const appData = process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming');
-    return path.join(appData, 'postgresql', 'root.crt');
+    if (process.platform === 'win32') {
+        // CockroachDB client cert location on Windows when following their docs.
+        // The user already downloaded root.crt to %APPDATA%\postgresql\root.crt
+        const appData = process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming');
+        return path.join(appData, 'postgresql', 'root.crt');
+    }
+
+    // Standard Postgres location on Unix-like systems.
+    return path.join(os.homedir(), '.postgresql', 'root.crt');
 }
 
 function getDatabaseUrl() {
@@ -38,26 +43,90 @@ function getDatabaseUrl() {
     );
 }
 
+function normalizePem(value) {
+    return String(value).replace(/\\n/g, '\n').trim();
+}
+
+function looksLikePem(value) {
+    return typeof value === 'string' && value.includes('BEGIN CERTIFICATE');
+}
+
+function getSslMode(databaseUrl) {
+    try {
+        const parsed = new URL(databaseUrl);
+        const mode = parsed.searchParams.get('sslmode');
+        return mode ? mode.toLowerCase() : null;
+    } catch {
+        const match = String(databaseUrl).match(/[?&]sslmode=([^&]+)/i);
+        return match ? decodeURIComponent(match[1]).toLowerCase() : null;
+    }
+}
+
+function readRootCaCert() {
+    const base64 = process.env.PGSSLROOTCERT_BASE64;
+    if (base64) {
+        try {
+            return Buffer.from(base64, 'base64').toString('utf8').trim();
+        } catch {
+            // ignore invalid base64
+        }
+    }
+
+    const pemEnv = process.env.PGSSLROOTCERT_PEM;
+    if (pemEnv) {
+        const normalized = normalizePem(pemEnv);
+        if (normalized) return normalized;
+    }
+
+    const rootCertEnv = process.env.PGSSLROOTCERT;
+    if (rootCertEnv) {
+        // Treat as a file path if it exists; otherwise accept a PEM string (useful for serverless env vars).
+        if (fs.existsSync(rootCertEnv)) {
+            return fs.readFileSync(rootCertEnv, 'utf8');
+        }
+        if (looksLikePem(rootCertEnv)) {
+            return normalizePem(rootCertEnv);
+        }
+    }
+
+    const sslCertFile = process.env.SSL_CERT_FILE;
+    if (sslCertFile && fs.existsSync(sslCertFile)) {
+        return fs.readFileSync(sslCertFile, 'utf8');
+    }
+
+    const defaultPath = getDefaultRootCertPath();
+    if (defaultPath && fs.existsSync(defaultPath)) {
+        return fs.readFileSync(defaultPath, 'utf8');
+    }
+
+    return null;
+}
+
 function getSslConfigFromEnv() {
     const url = getDatabaseUrl();
-    const wantsVerify = /[?&]sslmode=verify-full(?:&|$)/i.test(url);
+    const sslMode = getSslMode(url);
 
-    // If sslmode=verify-full is used, we should provide a CA certificate.
-    const rootCertPath =
-        process.env.PGSSLROOTCERT ||
-        process.env.SSL_CERT_FILE ||
-        getDefaultRootCertPath();
-
-    if (wantsVerify) {
-        if (!rootCertPath || !fs.existsSync(rootCertPath)) {
+    if (sslMode === 'verify-full' || sslMode === 'verify-ca') {
+        const ca = readRootCaCert();
+        if (!ca) {
+            const hint =
+                process.env.PGSSLROOTCERT ||
+                process.env.SSL_CERT_FILE ||
+                getDefaultRootCertPath();
             throw new Error(
-                `sslmode=verify-full requested but CA cert not found. Set PGSSLROOTCERT to the CockroachDB root.crt path (tried: ${rootCertPath}).`
+                `sslmode=${sslMode} requested but CA cert not found. Set PGSSLROOTCERT to a root.crt path, or set PGSSLROOTCERT_PEM/PGSSLROOTCERT_BASE64 (tried: ${hint}).`
             );
         }
 
         return {
             rejectUnauthorized: true,
-            ca: fs.readFileSync(rootCertPath, 'utf8'),
+            ca,
+        };
+    }
+
+    if (sslMode === 'require' || sslMode === 'no-verify') {
+        return {
+            rejectUnauthorized: false,
         };
     }
 

@@ -33,8 +33,8 @@ export async function handler(event, context) {
     if (msg.includes('DATABASE_URL is not set')) {
       details.push('DATABASE_URL is not configured');
     }
-    if (msg.includes('sslmode=verify-full requested')) {
-      details.push('Database SSL verification requested but CA certificate is missing (PGSSLROOTCERT)');
+    if (msg.includes('CA cert not found') || msg.includes('sslmode=verify-')) {
+      details.push('Database SSL verification requested but CA certificate is missing (set PGSSLROOTCERT_PEM/PGSSLROOTCERT_BASE64 or PGSSLROOTCERT path)');
     }
 
     if (details.length > 0) {

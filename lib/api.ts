@@ -82,7 +82,12 @@ async function fetchAPI<T>(
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
+        const baseMessage = errorData?.error || `HTTP error! status: ${response.status}`;
+        const details =
+          Array.isArray(errorData?.details) && errorData.details.length > 0
+            ? `: ${errorData.details.join('; ')}`
+            : '';
+        throw new Error(`${baseMessage}${details}`);
       }
 
       const data = await response.json();
