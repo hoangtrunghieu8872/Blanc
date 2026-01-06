@@ -126,7 +126,14 @@ const refreshAccessToken = async (): Promise<boolean> => {
 
 // Build URL with query params
 const buildUrl = (endpoint: string, params?: Record<string, string | number | boolean | undefined>): string => {
-    const url = new URL(`${API_BASE_URL}${endpoint}`);
+    const fallbackOrigin =
+        typeof window !== 'undefined' && window.location?.origin && window.location.origin !== 'null'
+            ? window.location.origin
+            : 'http://localhost';
+
+    // If API_BASE_URL is relative (e.g. "/api" on Netlify), URL() needs a base.
+    // If it's absolute (e.g. https://example.com/api), the base is ignored.
+    const url = new URL(`${API_BASE_URL}${endpoint}`, fallbackOrigin);
 
     if (params) {
         Object.entries(params).forEach(([key, value]) => {
